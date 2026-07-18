@@ -1,0 +1,21 @@
+# Project Checklist
+
+- [x] Project Initialization & Core Framework
+  - [x] Run Vite help and initialize React + TypeScript project
+  - [x] Install essential dependencies (`react-router-dom`, `lucide-react`, `pdf-lib`, `pdfjs-dist`, `browser-image-compression`, `canvas`)
+  - [x] Configure Tailwind CSS
+  - [x] Set up global CSS variables (glassmorphism, theme colors, dark/light theme, typography)
+  - [x] Create layout components (`Header`, `Footer`, `ThemeContext`)
+  - [x] Create searchable tool directory and pages routing (`App.tsx`, `Home.tsx`, `AllTools.tsx`)
+  - [x] Implement `ComingSoonTool.tsx` for placeholder routes
+- [x] Implement Phase 2 & 3: Initial PDF & Image Tools
+  - [x] Build reusable shared components (`FileUpload`, `DragDropZone`, `ProgressBar`, `ToolHeader`)
+  - [x] Implement **JPG/PNG to PDF** Tool (`JpgToPdf.tsx`)
+  - [x] Implement **Merge PDF** Tool (`MergePdf.tsx`)
+  - [x] Implement **Delete PDF Pages** Tool (`DeletePdfPages.tsx`)
+  - [x] Implement **PDF to JPG** Tool (`PdfToJpg.tsx`)
+  - [x] Implement **Image Compressor** Tool (`ImageCompressor.tsx`)
+- [x] Verification & Build Optimization
+  - [x] Perform build verification (`npm run build`)
+  - [x] Verify functionality and responsiveness of all 5 tools
+  - [x] Create walkthrough documentation

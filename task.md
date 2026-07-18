@@ -1,0 +1,43 @@
+# Project Checklist
+
+- [x] Project Initialization & Core Framework
+  - [x] Run Vite help and initialize React + TypeScript project
+  - [x] Install essential dependencies (`react-router-dom`, `lucide-react`, `pdf-lib`, `pdfjs-dist`, `browser-image-compression`, `canvas`)
+  - [x] Configure Tailwind CSS
+  - [x] Set up global CSS variables (glassmorphism, theme colors, dark/light theme, typography)
+  - [x] Create layout components (`Header`, `Footer`, `ThemeContext`)
+  - [x] Create searchable tool directory and pages routing (`App.tsx`, `Home.tsx`, `AllTools.tsx`)
+  - [x] Implement `ComingSoonTool.tsx` for placeholder routes
+- [x] Implement Phase 2: Initial PDF & Image Tools
+  - [x] Build reusable shared components (`FileUpload`, `DragDropZone`, `ProgressBar`, `ToolHeader`)
+  - [x] Implement **JPG/PNG to PDF** Tool (`JpgToPdf.tsx`)
+  - [x] Implement **Merge PDF** Tool (`MergePdf.tsx`)
+  - [x] Implement **Delete PDF Pages** Tool (`DeletePdfPages.tsx`)
+  - [x] Implement **PDF to JPG** Tool (`PdfToJpg.tsx`)
+  - [x] Implement **Image Compressor** Tool (`ImageCompressor.tsx`)
+- [x] Implement Phase 3: Identity & Photo Tools
+  - [x] Implement **Passport Photo Maker** Tool (`PassportPhoto.tsx`)
+    - [x] Create interactive canvas positioning workspace (pan, zoom)
+    - [x] Add image color filters (brightness, contrast, grayscale)
+    - [x] Implement A4 printable grid layout (4, 6, 8, 12 photos) via `pdf-lib`
+  - [x] Implement **Document & ID Print Formatter** Tool (`DocFormatter.tsx`)
+    - [x] Implement double-side front/back uploaders with image adjustments
+    - [x] Set up layout formatting parameters (vertical, horizontal, copies)
+    - [x] Generate A4 PDF at PVC scale (85.6x54 mm) using `pdf-lib`
+- [x] Implement Phase 4: Creative & Business Tools
+  - [x] Implement **Resume / CV Maker** Tool (`ResumeMaker.tsx`)
+    - [x] Create accordion input forms for resume fields
+    - [x] Implement profile photo masking and A4 placement
+    - [x] Write PDF compilation templates (Minimalist, Creative) in `pdf-lib`
+  - [x] Implement **Marriage Biodata Maker** Tool (`MarriageBiodata.tsx`)
+    - [x] Create form panels for astrological and family fields
+    - [x] Add golden motifs / borders drawing logic
+    - [x] Generate dot-leader layout PDF sheet in `pdf-lib`
+  - [x] Implement **Application & Letter Maker** Tool (`ApplicationMaker.tsx`)
+    - [x] Bind editable templates (leave application, request letter, complaint letter)
+    - [x] Write line-wrapping utility for text blocks layout
+    - [x] Generate clean A4 document PDF in `pdf-lib`
+- [x] Verification & Build Optimization
+  - [x] Perform build verification (`npm run build`)
+  - [x] Verify functionality and responsiveness of all tools
+  - [x] Create walkthrough documentation
