@@ -80,7 +80,19 @@ export const translations: Record<Language, Record<string, string>> = {
     'tool.qrGen.title': 'QR & UPI QR Code Generator',
     'tool.qrGen.desc': 'Create QR codes for text, WiFi networks, and instant UPI payment codes with payee detail fields.',
     'tool.idMaker.title': 'Generic ID Card Maker',
-    'tool.idMaker.desc': 'Create custom employee, student, or membership identity cards with front/back templates.'
+    'tool.idMaker.desc': 'Create custom employee, student, or membership identity cards with front/back templates.',
+    'tool.excelToPdf.title': 'Excel to PDF Converter',
+    'tool.excelToPdf.desc': 'Convert Excel spreadsheets (.xlsx, .xls, .csv) to PDF documents. Customize orientation, gridlines, margins, and page layouts.',
+    'tool.pdfToExcel.title': 'PDF to Excel Converter',
+    'tool.pdfToExcel.desc': 'Extract tables and text from PDF documents and save them as Excel spreadsheets (.xlsx) or CSV files.',
+    'tool.wordToPdf.title': 'Word to PDF Converter',
+    'tool.wordToPdf.desc': 'Convert Microsoft Word (.docx) documents to professional PDF files. Retain layout and format.',
+    'tool.pdfToWord.title': 'PDF to Word Converter',
+    'tool.pdfToWord.desc': 'Convert PDF files into editable Word documents (.doc) with extracted paragraph text.',
+    'tool.pptToPdf.title': 'PPT to PDF Converter',
+    'tool.pptToPdf.desc': 'Convert PowerPoint presentations (.pptx) to standard PDF documents layout-by-layout.',
+    'tool.pdfToPpt.title': 'PDF to PPT Converter',
+    'tool.pdfToPpt.desc': 'Convert PDF documents into PowerPoint presentation slides (.pptx). Each page becomes a slide image.'
   },
   hi: {
     // Nav Bar
@@ -161,6 +173,18 @@ export const translations: Record<Language, Record<string, string>> = {
     'tool.qrGen.title': 'क्यूआर और यूपीआई क्यूआर कोड जनरेटर',
     'tool.qrGen.desc': 'टेक्स्ट, वाईफाई नेटवर्क और तत्काल यूपीआई भुगतान क्यूआर कोड बनाएं।',
     'tool.idMaker.title': 'आईडी कार्ड मेकर',
-    'tool.idMaker.desc': 'कर्मचारी, छात्र या सदस्यता कार्ड के लिए कस्टम आईडी कार्ड बनाएं।'
+    'tool.idMaker.desc': 'कर्मचारी, छात्र या सदस्यता कार्ड के लिए कस्टम आईडी कार्ड बनाएं।',
+    'tool.excelToPdf.title': 'एक्सेल से पीडीएफ कनवर्टर',
+    'tool.excelToPdf.desc': 'एक्सेल स्प्रेडशीट (.xlsx, .xls, .csv) को पीडीएफ में बदलें। ओरिएंटेशन, ग्रिडलाइन्स, और मार्जिन सेट करें।',
+    'tool.pdfToExcel.title': 'पीडीएफ से एक्सेल कनवर्टर',
+    'tool.pdfToExcel.desc': 'पीडीएफ डॉक्यूमेंट से टेबल और डेटा निकालें और उन्हें एक्सेल (.xlsx) या सीएसवी फाइल में बदलें।',
+    'tool.wordToPdf.title': 'वर्ड से पीडीएफ कनवर्टर',
+    'tool.wordToPdf.desc': 'माइक्रोसॉफ्ट वर्ड (.docx) फाइलों को बिना फॉर्मेट बिगड़े पीडीएफ में बदलें।',
+    'tool.pdfToWord.title': 'पीडीएफ से वर्ड कनवर्टर',
+    'tool.pdfToWord.desc': 'पीडीएफ फाइलों को एडिट करने योग्य वर्ड डॉक्यूमेंट (.doc) में बदलें।',
+    'tool.pptToPdf.title': 'पीपीटी से पीडीएफ कनवर्टर',
+    'tool.pptToPdf.desc': 'पावरपॉइंट प्रेजेंटेशन (.pptx) फाइलों को पीडीएफ में बदलें।',
+    'tool.pdfToPpt.title': 'पीडीएफ से पीपीटी कनवर्टर',
+    'tool.pdfToPpt.desc': 'पीडीएफ डॉक्यूमेंट को पावरपॉइंट प्रेजेंटेशन (.pptx) में बदलें। हर पेज एक स्लाइड बनेगा।'
   }
 };

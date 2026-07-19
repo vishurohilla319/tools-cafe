@@ -28,6 +28,9 @@ import IdCardMaker from './pages/Tools/IdCardMaker';
 import PosterMaker from './pages/Tools/PosterMaker';
 import ComingSoonTool from './pages/Tools/ComingSoonTool';
 
+// New PDF Conversion Tools
+import WordToPdf from './pages/Tools/WordToPdf';
+
 export const App: React.FC = () => {
   return (
     <ThemeProvider>
@@ -56,6 +59,14 @@ export const App: React.FC = () => {
                   <Route path="/tools/delete-pdf-pages" element={<DeletePdfPages />} />
                   <Route path="/tools/pdf-to-jpg" element={<PdfToJpg />} />
                   <Route path="/tools/compress-image" element={<ImageCompressor />} />
+                  
+                  {/* New PDF Conversion Tools */}
+                  <Route path="/tools/excel-to-pdf" element={<ComingSoonTool />} />
+                  <Route path="/tools/pdf-to-excel" element={<ComingSoonTool />} />
+                  <Route path="/tools/word-to-pdf" element={<WordToPdf />} />
+                  <Route path="/tools/pdf-to-word" element={<ComingSoonTool />} />
+                  <Route path="/tools/ppt-to-pdf" element={<ComingSoonTool />} />
+                  <Route path="/tools/pdf-to-ppt" element={<ComingSoonTool />} />
 
                   {/* Placeholder routes for coming soon tools to guarantee routes exist */}
                   <Route path="/tools/split-pdf" element={<ComingSoonTool />} />

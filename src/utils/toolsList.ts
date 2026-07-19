@@ -99,6 +99,16 @@ export const toolsList: Tool[] = [
     isPopular: false,
     isClientSide: true
   },
+  {
+    id: 'word-to-pdf',
+    nameKey: 'tool.wordToPdf.title',
+    descKey: 'tool.wordToPdf.desc',
+    route: '/tools/word-to-pdf',
+    category: 'pdf',
+    icon: 'FileText',
+    isPopular: true,
+    isClientSide: true
+  },
 
   // Image Tools
   {
