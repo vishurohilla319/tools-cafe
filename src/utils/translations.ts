@@ -104,7 +104,13 @@ export const translations: Record<Language, Record<string, string>> = {
     'tool.webpToJpg.title': 'WebP to JPG Converter',
     'tool.webpToJpg.desc': 'Convert modern WebP images to standard JPG format.',
     'tool.jpgToWebp.title': 'JPG to WebP Converter',
-    'tool.jpgToWebp.desc': 'Convert JPG images to modern WebP format.'
+    'tool.jpgToWebp.desc': 'Convert JPG images to modern WebP format.',
+    'limit.modal.title': 'Conversion Limit Reached',
+    'limit.modal.description': 'You have used your 10 free conversions. Please log in or sign up to get unlimited conversions across all digital and print tools.',
+    'limit.modal.loginUser': 'Log in as User',
+    'limit.modal.loginAdmin': 'Log in as Admin',
+    'limit.modal.signup': 'Sign Up / Create Account',
+    'limit.modal.cancel': 'Maybe Later'
   },
   hi: {
     // Nav Bar
@@ -209,6 +215,12 @@ export const translations: Record<Language, Record<string, string>> = {
     'tool.webpToJpg.title': 'वेबपी से जेपीजी कनवर्टर',
     'tool.webpToJpg.desc': 'आधुनिक वेबपी फाइलों को मानक जेपीजी प्रारूप में बदलें।',
     'tool.jpgToWebp.title': 'जेपीजी से वेबपी कनवर्टर',
-    'tool.jpgToWebp.desc': 'जेपीजी फाइलों को आधुनिक और छोटे वेबपी प्रारूप में बदलें।'
+    'tool.jpgToWebp.desc': 'जेपीजी फाइलों को आधुनिक और छोटे वेबपी प्रारूप में बदलें।',
+    'limit.modal.title': 'रूपांतरण सीमा समाप्त',
+    'limit.modal.description': 'आपने अपने 10 मुफ्त रूपांतरणों का उपयोग कर लिया है। सभी डिजिटल और प्रिंट टूल्स पर असीमित रूपांतरण प्राप्त करने के लिए कृपया लॉगिन करें या साइन अप करें।',
+    'limit.modal.loginUser': 'यूज़र लॉगिन करें',
+    'limit.modal.loginAdmin': 'एडमिन लॉगिन करें',
+    'limit.modal.signup': 'साइन अप / खाता बनाएं',
+    'limit.modal.cancel': 'बाद में'
   }
 };

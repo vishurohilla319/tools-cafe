@@ -6,25 +6,24 @@ import { useFavorites } from '../context/FavoritesContext';
 import { toolsList } from '../utils/toolsList';
 import Icon from '../components/ui/Icon';
 
+import { useConversionLimit } from '../context/ConversionLimitContext';
+
 export const Dashboard: React.FC = () => {
   const { t } = useLanguage();
   const { favorites } = useFavorites();
+  const { conversionCount: processedCount, isLoggedIn } = useConversionLimit();
   
   const [userPlan] = useState(() => localStorage.getItem('userPlan') || 'free');
   const [recentToolIds, setRecentToolIds] = useState<string[]>([]);
-  const [processedCount, setProcessedCount] = useState(0);
 
   useEffect(() => {
     const saved = localStorage.getItem('recent_tools');
     if (saved) setRecentToolIds(JSON.parse(saved));
-
-    const count = parseInt(localStorage.getItem('files_processed_count') || '0', 10);
-    setProcessedCount(count || 12); // Default mock count of 12 if none processed yet
   }, []);
 
   const handleResetLimits = () => {
     localStorage.setItem('files_processed_count', '0');
-    setProcessedCount(0);
+    window.dispatchEvent(new Event('storage'));
   };
 
   const favoriteTools = toolsList.filter((tool) => favorites.includes(tool.id));
@@ -66,19 +65,19 @@ export const Dashboard: React.FC = () => {
               <div>
                 <div className="flex justify-between text-xs font-bold text-slate-600 dark:text-slate-400 mb-1.5">
                   <span>Daily Conversions Used</span>
-                  <span>{processedCount} / {userPlan === 'pro' ? '∞' : '10'}</span>
+                  <span>{processedCount} / {isLoggedIn || userPlan === 'pro' ? '∞' : '10'}</span>
                 </div>
                 <div className="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
                   <div
                     className={`h-full rounded-full transition-all ${
-                      processedCount >= 10 && userPlan !== 'pro' ? 'bg-red-500' : 'bg-brand-500'
+                      processedCount >= 10 && !isLoggedIn && userPlan !== 'pro' ? 'bg-red-500' : 'bg-brand-500'
                     }`}
-                    style={{ width: `${userPlan === 'pro' ? Math.min(100, (processedCount / 50) * 100) : Math.min(100, (processedCount / 10) * 100)}%` }}
+                    style={{ width: `${isLoggedIn || userPlan === 'pro' ? Math.min(100, (processedCount / 50) * 100) : Math.min(100, (processedCount / 10) * 100)}%` }}
                   />
                 </div>
-                {userPlan !== 'pro' && processedCount >= 10 && (
+                {!isLoggedIn && userPlan !== 'pro' && processedCount >= 10 && (
                   <p className="text-[10px] text-red-500 font-semibold mt-1.5 leading-snug">
-                    You have reached your free daily limit. Upgrade to Pro for unlimited usage!
+                    You have reached your free limit. Please log in or upgrade to Pro for unlimited usage!
                   </p>
                 )}
               </div>

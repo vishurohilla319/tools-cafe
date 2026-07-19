@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { ThemeProvider } from './context/ThemeContext';
 import { LanguageProvider } from './context/LanguageContext';
 import { FavoritesProvider as FavProvider } from './context/FavoritesContext';
+import { ConversionLimitProvider } from './context/ConversionLimitContext';
 import Header from './components/layout/Header';
 import Footer from './components/layout/Footer';
 import Home from './pages/Home';
@@ -40,8 +41,9 @@ export const App: React.FC = () => {
   return (
     <ThemeProvider>
       <LanguageProvider>
-        <FavProvider>
-          <Router>
+        <ConversionLimitProvider>
+          <FavProvider>
+            <Router>
             <div className="flex flex-col min-h-screen bg-slate-50 dark:bg-dark-bg text-slate-800 dark:text-slate-100 transition-colors duration-300">
               
               {/* Global Header */}
@@ -108,6 +110,7 @@ export const App: React.FC = () => {
             </div>
           </Router>
         </FavProvider>
+      </ConversionLimitProvider>
       </LanguageProvider>
     </ThemeProvider>
   );
