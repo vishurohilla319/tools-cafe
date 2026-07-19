@@ -11,9 +11,15 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [theme, setTheme] = useState<Theme>(() => {
+    const migrated = localStorage.getItem('theme_migrated_to_dark_v1');
+    if (!migrated) {
+      localStorage.setItem('theme_migrated_to_dark_v1', 'true');
+      localStorage.setItem('theme', 'dark');
+      return 'dark';
+    }
     const saved = localStorage.getItem('theme');
     if (saved === 'light' || saved === 'dark') return saved;
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    return 'dark';
   });
 
   useEffect(() => {

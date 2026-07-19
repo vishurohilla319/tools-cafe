@@ -21,6 +21,81 @@ const ASPECT_RATIO_PRESETS: AspectRatioPreset[] = [
   { name: '9:16 (Vertical)', ratio: 9 / 16, width: 162, height: 288 }
 ];
 
+// Helper to change/inject DPI in JPEG JFIF header
+const changeDpiInJpeg = (blob: Blob, dpi: number): Promise<Blob> => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const buffer = e.target?.result as ArrayBuffer;
+      if (!buffer) {
+        resolve(blob);
+        return;
+      }
+      const view = new DataView(buffer);
+      // Verify JPEG SOI (0xFFD8)
+      if (view.byteLength < 4 || view.getUint16(0) !== 0xFFD8) {
+        resolve(blob);
+        return;
+      }
+      
+      let offset = 2;
+      while (offset + 4 <= view.byteLength) {
+        const marker = view.getUint16(offset);
+        if (marker === 0xFFE0) {
+          // Found APP0 (JFIF)
+          const length = view.getUint16(offset + 2);
+          if (offset + 2 + length <= view.byteLength && length >= 14) {
+            // Check for "JFIF\0" identifier
+            if (
+              view.getUint8(offset + 4) === 0x4A && // 'J'
+              view.getUint8(offset + 5) === 0x46 && // 'F'
+              view.getUint8(offset + 6) === 0x49 && // 'I'
+              view.getUint8(offset + 7) === 0x46 && // 'F'
+              view.getUint8(offset + 8) === 0x00    // '\0'
+            ) {
+              // Set density unit to 1 (dots per inch)
+              view.setUint8(offset + 13, 1);
+              // Set X density
+              view.setUint16(offset + 14, dpi);
+              // Set Y density
+              view.setUint16(offset + 16, dpi);
+              
+              resolve(new Blob([buffer], { type: 'image/jpeg' }));
+              return;
+            }
+          }
+          offset += length + 2;
+        } else if ((marker & 0xFF00) === 0xFF00 && marker !== 0xFFD8 && marker !== 0xFFD9) {
+          // Other marker, skip it
+          const length = view.getUint16(offset + 2);
+          offset += length + 2;
+        } else {
+          break;
+        }
+      }
+      
+      // If APP0 marker is not found, insert one right after SOI
+      const app0Segment = new Uint8Array([
+        0xFF, 0xE0, // APP0 marker
+        0x00, 0x10, // length = 16
+        0x4A, 0x46, 0x49, 0x46, 0x00, // JFIF\0
+        0x01, 0x01, // version 1.01
+        0x01,       // density units (1 = DPI)
+        (dpi >> 8) & 0xFF, dpi & 0xFF, // X density
+        (dpi >> 8) & 0xFF, dpi & 0xFF, // Y density
+        0x00, 0x00  // thumbnail width/height
+      ]);
+      const newBuffer = new Uint8Array(buffer.byteLength + app0Segment.length);
+      newBuffer.set(new Uint8Array(buffer.slice(0, 2)), 0);
+      newBuffer.set(app0Segment, 2);
+      newBuffer.set(new Uint8Array(buffer.slice(2)), 2 + app0Segment.length);
+      resolve(new Blob([newBuffer], { type: 'image/jpeg' }));
+    };
+    reader.onerror = () => resolve(blob);
+    reader.readAsArrayBuffer(blob);
+  });
+};
+
 export const ImageCropper: React.FC = () => {
   const { t } = useLanguage();
   const [originalFile, setOriginalFile] = useState<File | null>(null);
@@ -29,9 +104,15 @@ export const ImageCropper: React.FC = () => {
   const [originalSizeKb, setOriginalSizeKb] = useState<number>(0);
 
   // Crop Box & Drag States
+  const [cropMode, setCropMode] = useState<'preset' | 'custom-cm'>('preset');
   const [selectedRatio, setSelectedRatio] = useState<AspectRatioPreset>(ASPECT_RATIO_PRESETS[1]); // Default to 1:1
   const [cropW, setCropW] = useState<number>(220);
   const [cropH, setCropH] = useState<number>(220);
+
+  // Custom cm & DPI states
+  const [widthCm, setWidthCm] = useState<number>(3.5);
+  const [heightCm, setHeightCm] = useState<number>(4.5);
+  const [dpi, setDpi] = useState<number>(300);
 
   // Zoom, pan, rotate
   const [zoom, setZoom] = useState<number>(1);
@@ -88,16 +169,30 @@ export const ImageCropper: React.FC = () => {
     };
   };
 
-  // Adjust Crop Box dimensions when preset changes
+  // Adjust Crop Box dimensions when preset or custom cm settings change
   useEffect(() => {
-    if (selectedRatio.ratio === 'free') {
-      setCropW(selectedRatio.width);
-      setCropH(selectedRatio.height);
-    } else {
-      const workspaceW = 320;
-      const workspaceH = 260;
-      const r = selectedRatio.ratio;
+    const workspaceW = 320;
+    const workspaceH = 260;
 
+    if (cropMode === 'preset') {
+      if (selectedRatio.ratio === 'free') {
+        setCropW(selectedRatio.width);
+        setCropH(selectedRatio.height);
+      } else {
+        const r = selectedRatio.ratio;
+        if (r > workspaceW / workspaceH) {
+          setCropW(workspaceW);
+          setCropH(Math.round(workspaceW / r));
+        } else {
+          setCropH(workspaceH);
+          setCropW(Math.round(workspaceH * r));
+        }
+      }
+    } else {
+      // custom-cm mode
+      const w = Math.max(0.1, widthCm);
+      const h = Math.max(0.1, heightCm);
+      const r = w / h;
       if (r > workspaceW / workspaceH) {
         setCropW(workspaceW);
         setCropH(Math.round(workspaceW / r));
@@ -112,7 +207,7 @@ export const ImageCropper: React.FC = () => {
     setZoom(1);
     setCroppedUrl(null);
     setCroppedBlob(null);
-  }, [selectedRatio]);
+  }, [cropMode, selectedRatio, widthCm, heightCm]);
 
   // Re-draw workspace preview canvas
   useEffect(() => {
@@ -198,9 +293,19 @@ export const ImageCropper: React.FC = () => {
       // Calculate resolution multiplier mapping workspace to original dimensions
       const resScale = imageObj.width / (imageObj.width * baseScale * zoom);
 
-      // Cropped output canvas sizes
-      const outputW = Math.round(cropW * resScale);
-      const outputH = Math.round(cropH * resScale);
+      let outputW: number;
+      let outputH: number;
+      let drawScale: number;
+
+      if (cropMode === 'preset') {
+        outputW = Math.round(cropW * resScale);
+        outputH = Math.round(cropH * resScale);
+        drawScale = resScale;
+      } else {
+        outputW = Math.round((widthCm / 2.54) * dpi);
+        outputH = Math.round((heightCm / 2.54) * dpi);
+        drawScale = outputW / cropW;
+      }
 
       const renderCanvas = document.createElement('canvas');
       renderCanvas.width = outputW;
@@ -216,20 +321,26 @@ export const ImageCropper: React.FC = () => {
       if (isGrayscale) filterString += ' grayscale(100%)';
       rCtx.filter = filterString;
 
-      // Draw high resolution image centered and relative to user workspace inputs
-      rCtx.translate(outputW / 2 + offsetX * resScale, outputH / 2 + offsetY * resScale);
+      // Draw image centered and scaled
+      rCtx.translate(outputW / 2 + offsetX * drawScale, outputH / 2 + offsetY * drawScale);
       rCtx.rotate((rotation * Math.PI) / 180);
 
-      rCtx.drawImage(imageObj, -imageObj.width / 2, -imageObj.height / 2, imageObj.width, imageObj.height);
+      const drawW = imageObj.width * baseScale * zoom * drawScale;
+      const drawH = imageObj.height * baseScale * zoom * drawScale;
+      rCtx.drawImage(imageObj, -drawW / 2, -drawH / 2, drawW, drawH);
 
       // Export
       renderCanvas.toBlob(
-        (blob) => {
+        async (blob) => {
           if (blob) {
+            let finalBlob = blob;
+            if (cropMode === 'custom-cm') {
+              finalBlob = await changeDpiInJpeg(blob, dpi);
+            }
             if (croppedUrl) URL.revokeObjectURL(croppedUrl);
-            setCroppedBlob(blob);
-            setCroppedUrl(URL.createObjectURL(blob));
-            setCroppedSizeKb(Math.round(blob.size / 1024));
+            setCroppedBlob(finalBlob);
+            setCroppedUrl(URL.createObjectURL(finalBlob));
+            setCroppedSizeKb(Math.round(finalBlob.size / 1024));
           }
           setIsProcessing(false);
         },
@@ -384,58 +495,168 @@ export const ImageCropper: React.FC = () => {
 
           {/* Right Column: Settings Panel */}
           <div className="lg:col-span-5 flex flex-col space-y-6">
-            {/* Aspect Ratio Panel */}
+            {/* Aspect Ratio & Custom Size Panel */}
             <div className="bg-white dark:bg-dark-card border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-3">
-              <h3 className="font-heading text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+              <h3 className="font-heading text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2 mb-2">
                 <FileImage size={16} className="text-brand-500" />
-                Aspect Ratio
+                Crop Dimension Options
               </h3>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-2">
-                {ASPECT_RATIO_PRESETS.map((preset) => (
-                  <button
-                    key={preset.name}
-                    type="button"
-                    onClick={() => setSelectedRatio(preset)}
-                    className={`py-2 text-[11px] font-bold rounded-lg border transition-colors text-center ${
-                      selectedRatio.name === preset.name
-                        ? 'border-brand-500 bg-brand-500/10 text-brand-500'
-                        : 'border-slate-200 dark:border-slate-850 hover:bg-slate-50 dark:hover:bg-slate-850/50'
-                    }`}
-                  >
-                    {preset.name}
-                  </button>
-                ))}
+
+              {/* Crop Mode Selection Tabs */}
+              <div className="flex rounded-lg bg-slate-100 dark:bg-slate-900 p-1 mb-4">
+                <button
+                  type="button"
+                  onClick={() => setCropMode('preset')}
+                  className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all ${
+                    cropMode === 'preset'
+                      ? 'bg-white dark:bg-dark-card text-slate-800 dark:text-slate-100 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-350'
+                  }`}
+                >
+                  Aspect Ratio Presets
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCropMode('custom-cm')}
+                  className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all ${
+                    cropMode === 'custom-cm'
+                      ? 'bg-white dark:bg-dark-card text-slate-800 dark:text-slate-100 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-350'
+                  }`}
+                >
+                  Custom Size (cm & DPI)
+                </button>
               </div>
 
-              {selectedRatio.ratio === 'free' && (
-                <div className="space-y-4 pt-3 border-t border-slate-100 dark:border-slate-850">
-                  <div className="space-y-1">
-                    <div className="flex justify-between">
-                      <label className="text-[11px] font-bold text-slate-500">Crop Box Width</label>
-                      <span className="text-[11px] font-bold text-brand-500">{cropW}px</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="100"
-                      max="320"
-                      value={cropW}
-                      onChange={(e) => setCropW(parseInt(e.target.value))}
-                      className="w-full h-1 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-brand-500"
-                    />
+              {cropMode === 'preset' ? (
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-2">
+                    {ASPECT_RATIO_PRESETS.map((preset) => (
+                      <button
+                        key={preset.name}
+                        type="button"
+                        onClick={() => setSelectedRatio(preset)}
+                        className={`py-2 text-[11px] font-bold rounded-lg border transition-colors text-center ${
+                          selectedRatio.name === preset.name
+                            ? 'border-brand-500 bg-brand-500/10 text-brand-500'
+                            : 'border-slate-200 dark:border-slate-850 hover:bg-slate-50 dark:hover:bg-slate-850/50'
+                        }`}
+                      >
+                        {preset.name}
+                      </button>
+                    ))}
                   </div>
-                  <div className="space-y-1">
-                    <div className="flex justify-between">
-                      <label className="text-[11px] font-bold text-slate-500">Crop Box Height</label>
-                      <span className="text-[11px] font-bold text-brand-500">{cropH}px</span>
+
+                  {selectedRatio.ratio === 'free' && (
+                    <div className="space-y-4 pt-3 border-t border-slate-100 dark:border-slate-850">
+                      <div className="space-y-1">
+                        <div className="flex justify-between">
+                          <label className="text-[11px] font-bold text-slate-500">Crop Box Width</label>
+                          <span className="text-[11px] font-bold text-brand-500">{cropW}px</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="100"
+                          max="320"
+                          value={cropW}
+                          onChange={(e) => setCropW(parseInt(e.target.value))}
+                          className="w-full h-1 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-brand-500"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex justify-between">
+                          <label className="text-[11px] font-bold text-slate-500">Crop Box Height</label>
+                          <span className="text-[11px] font-bold text-brand-500">{cropH}px</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="100"
+                          max="260"
+                          value={cropH}
+                          onChange={(e) => setCropH(parseInt(e.target.value))}
+                          className="w-full h-1 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-brand-500"
+                        />
+                      </div>
                     </div>
-                    <input
-                      type="range"
-                      min="100"
-                      max="260"
-                      value={cropH}
-                      onChange={(e) => setCropH(parseInt(e.target.value))}
-                      className="w-full h-1 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-brand-500"
-                    />
+                  )}
+                </>
+              ) : (
+                <div className="space-y-4 pt-2">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                        Width (cm)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0.1"
+                        value={widthCm}
+                        onChange={(e) => setWidthCm(Math.max(0.1, parseFloat(e.target.value) || 0))}
+                        className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 focus:outline-none focus:border-brand-500 font-bold text-slate-850 dark:text-slate-100"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                        Height (cm)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0.1"
+                        value={heightCm}
+                        onChange={(e) => setHeightCm(Math.max(0.1, parseFloat(e.target.value) || 0))}
+                        className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 focus:outline-none focus:border-brand-500 font-bold text-slate-850 dark:text-slate-100"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                      DPI (Resolution)
+                    </label>
+                    <div className="grid grid-cols-4 gap-2">
+                      <input
+                        type="number"
+                        min="1"
+                        value={dpi}
+                        onChange={(e) => setDpi(Math.max(1, parseInt(e.target.value) || 0))}
+                        className="col-span-2 px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 focus:outline-none focus:border-brand-500 font-bold text-slate-850 dark:text-slate-100"
+                      />
+                      <button
+                        key="dpi-150"
+                        type="button"
+                        onClick={() => setDpi(150)}
+                        className={`py-2 text-[10px] font-bold rounded-lg border transition-colors text-center ${
+                          dpi === 150
+                            ? 'border-brand-500 bg-brand-500/10 text-brand-500'
+                            : 'border-slate-200 dark:border-slate-850 hover:bg-slate-50 dark:hover:bg-slate-850/50 text-slate-700 dark:text-slate-300'
+                        }`}
+                      >
+                        150
+                      </button>
+                      <button
+                        key="dpi-300"
+                        type="button"
+                        onClick={() => setDpi(300)}
+                        className={`py-2 text-[10px] font-bold rounded-lg border transition-colors text-center ${
+                          dpi === 300
+                            ? 'border-brand-500 bg-brand-500/10 text-brand-500'
+                            : 'border-slate-200 dark:border-slate-850 hover:bg-slate-50 dark:hover:bg-slate-850/50 text-slate-700 dark:text-slate-300'
+                        }`}
+                      >
+                        300
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-slate-50 dark:bg-slate-900/50 rounded-lg border border-slate-100 dark:border-slate-850 text-center">
+                    <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                      Resulting Output Size
+                    </div>
+                    <div className="text-sm font-bold text-slate-700 dark:text-slate-300 mt-0.5">
+                      {Math.round((widthCm / 2.54) * dpi)} × {Math.round((heightCm / 2.54) * dpi)} px
+                    </div>
                   </div>
                 </div>
               )}
