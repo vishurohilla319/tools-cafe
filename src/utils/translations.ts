@@ -92,7 +92,19 @@ export const translations: Record<Language, Record<string, string>> = {
     'tool.pptToPdf.title': 'PPT to PDF Converter',
     'tool.pptToPdf.desc': 'Convert PowerPoint presentations (.pptx) to standard PDF documents layout-by-layout.',
     'tool.pdfToPpt.title': 'PDF to PPT Converter',
-    'tool.pdfToPpt.desc': 'Convert PDF documents into PowerPoint presentation slides (.pptx). Each page becomes a slide image.'
+    'tool.pdfToPpt.desc': 'Convert PDF documents into PowerPoint presentation slides (.pptx). Each page becomes a slide image.',
+    'tool.imageResize.title': 'Resize Image',
+    'tool.imageResize.desc': 'Resize photos by dimensions, percentage, or custom quality.',
+    'tool.imageCrop.title': 'Crop Image',
+    'tool.imageCrop.desc': 'Crop and rotate images visually to custom or fixed aspect ratios.',
+    'tool.jpgToPng.title': 'JPG to PNG Converter',
+    'tool.jpgToPng.desc': 'Convert JPG images to PNG transparent format.',
+    'tool.pngToJpg.title': 'PNG to JPG Converter',
+    'tool.pngToJpg.desc': 'Convert PNG images to standard JPG format.',
+    'tool.webpToJpg.title': 'WebP to JPG Converter',
+    'tool.webpToJpg.desc': 'Convert modern WebP images to standard JPG format.',
+    'tool.jpgToWebp.title': 'JPG to WebP Converter',
+    'tool.jpgToWebp.desc': 'Convert JPG images to modern WebP format.'
   },
   hi: {
     // Nav Bar
@@ -185,6 +197,18 @@ export const translations: Record<Language, Record<string, string>> = {
     'tool.pptToPdf.title': 'पीपीटी से पीडीएफ कनवर्टर',
     'tool.pptToPdf.desc': 'पावरपॉइंट प्रेजेंटेशन (.pptx) फाइलों को पीडीएफ में बदलें।',
     'tool.pdfToPpt.title': 'पीडीएफ से पीपीटी कनवर्टर',
-    'tool.pdfToPpt.desc': 'पीडीएफ डॉक्यूमेंट को पावरपॉइंट प्रेजेंटेशन (.pptx) में बदलें। हर पेज एक स्लाइड बनेगा।'
+    'tool.pdfToPpt.desc': 'पीडीएफ डॉक्यूमेंट को पावरपॉइंट प्रेजेंटेशन (.pptx) में बदलें। हर पेज एक स्लाइड बनेगा।',
+    'tool.imageResize.title': 'इमेज रिसाइज़र',
+    'tool.imageResize.desc': 'पिक्सेल आकार, प्रतिशत या गुणवत्ता के आधार पर छवियों का आकार बदलें।',
+    'tool.imageCrop.title': 'इमेज क्रॉपर',
+    'tool.imageCrop.desc': 'निश्चित या मुफ़्त पहलू अनुपातों का उपयोग करके छवियों को क्रॉप और रोटेट करें।',
+    'tool.jpgToPng.title': 'जेपीजी से पीएनजी कनवर्टर',
+    'tool.jpgToPng.desc': 'जेपीजी इमेज फाइलों को पारदर्शी पीएनजी फाइलों में बदलें।',
+    'tool.pngToJpg.title': 'पीएनजी से जेपीजी कनवर्टर',
+    'tool.pngToJpg.desc': 'पीएनजी फाइलों को मानक जेपीजी प्रारूप में बदलें।',
+    'tool.webpToJpg.title': 'वेबपी से जेपीजी कनवर्टर',
+    'tool.webpToJpg.desc': 'आधुनिक वेबपी फाइलों को मानक जेपीजी प्रारूप में बदलें।',
+    'tool.jpgToWebp.title': 'जेपीजी से वेबपी कनवर्टर',
+    'tool.jpgToWebp.desc': 'जेपीजी फाइलों को आधुनिक और छोटे वेबपी प्रारूप में बदलें।'
   }
 };

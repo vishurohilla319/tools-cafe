@@ -31,6 +31,11 @@ import ComingSoonTool from './pages/Tools/ComingSoonTool';
 // New PDF Conversion Tools
 import WordToPdf from './pages/Tools/WordToPdf';
 
+// New Image Resizing/Cropping Tools
+import ImageResizer from './pages/Tools/ImageResizer';
+import ImageCropper from './pages/Tools/ImageCropper';
+import ImageConverter from './pages/Tools/ImageConverter';
+
 export const App: React.FC = () => {
   return (
     <ThemeProvider>
@@ -76,12 +81,12 @@ export const App: React.FC = () => {
                   <Route path="/tools/pdf-to-png" element={<ComingSoonTool />} />
                   <Route path="/tools/compress-pdf" element={<ComingSoonTool />} />
                   
-                  <Route path="/tools/jpg-to-png" element={<ComingSoonTool />} />
-                  <Route path="/tools/png-to-jpg" element={<ComingSoonTool />} />
-                  <Route path="/tools/webp-to-jpg" element={<ComingSoonTool />} />
-                  <Route path="/tools/jpg-to-webp" element={<ComingSoonTool />} />
-                  <Route path="/tools/image-resize" element={<ComingSoonTool />} />
-                  <Route path="/tools/image-crop" element={<ComingSoonTool />} />
+                  <Route path="/tools/jpg-to-png" element={<ImageConverter defaultFrom="jpeg" defaultTo="png" />} />
+                  <Route path="/tools/png-to-jpg" element={<ImageConverter defaultFrom="png" defaultTo="jpeg" />} />
+                  <Route path="/tools/webp-to-jpg" element={<ImageConverter defaultFrom="webp" defaultTo="jpeg" />} />
+                  <Route path="/tools/jpg-to-webp" element={<ImageConverter defaultFrom="jpeg" defaultTo="webp" />} />
+                  <Route path="/tools/image-resize" element={<ImageResizer />} />
+                  <Route path="/tools/image-crop" element={<ImageCropper />} />
                   <Route path="/tools/image-rotate" element={<ComingSoonTool />} />
                   <Route path="/tools/image-flip" element={<ComingSoonTool />} />
 

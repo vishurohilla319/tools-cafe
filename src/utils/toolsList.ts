@@ -123,8 +123,8 @@ export const toolsList: Tool[] = [
   },
   {
     id: 'image-resize',
-    nameKey: 'Resize Image',
-    descKey: 'Resize images by width, height, or percentage.',
+    nameKey: 'tool.imageResize.title',
+    descKey: 'tool.imageResize.desc',
     route: '/tools/image-resize',
     category: 'image',
     icon: 'Maximize',
@@ -133,8 +133,8 @@ export const toolsList: Tool[] = [
   },
   {
     id: 'image-crop',
-    nameKey: 'Crop Image',
-    descKey: 'Crop images visually to desired ratios.',
+    nameKey: 'tool.imageCrop.title',
+    descKey: 'tool.imageCrop.desc',
     route: '/tools/image-crop',
     category: 'image',
     icon: 'Crop',
@@ -143,8 +143,8 @@ export const toolsList: Tool[] = [
   },
   {
     id: 'jpg-to-png',
-    nameKey: 'JPG to PNG',
-    descKey: 'Convert JPG images to PNG transparent files.',
+    nameKey: 'tool.jpgToPng.title',
+    descKey: 'tool.jpgToPng.desc',
     route: '/tools/jpg-to-png',
     category: 'image',
     icon: 'Replace',
@@ -153,8 +153,8 @@ export const toolsList: Tool[] = [
   },
   {
     id: 'webp-to-jpg',
-    nameKey: 'WebP to JPG',
-    descKey: 'Convert modern WebP images into standard JPG formats.',
+    nameKey: 'tool.webpToJpg.title',
+    descKey: 'tool.webpToJpg.desc',
     route: '/tools/webp-to-jpg',
     category: 'image',
     icon: 'Replace',
