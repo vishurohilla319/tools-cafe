@@ -43,6 +43,8 @@ export interface TextOverlay {
   color: string; // Hex color string
   xPct: number; // 0 to 100 (% of page width)
   yPct: number; // 0 to 100 (% of page height from top)
+  widthPct?: number; // Optional custom width %
+  heightPct?: number; // Optional custom height %
   bgWhiteout?: boolean; // Cover original text under this box with white background
 }
 
@@ -116,6 +118,7 @@ export const PdfEditor: React.FC = () => {
   const [modalWhiteout, setModalWhiteout] = useState<boolean>(true);
   const [modalXPct, setModalXPct] = useState<number>(10);
   const [modalYPct, setModalYPct] = useState<number>(10);
+  const [modalWidthPct, setModalWidthPct] = useState<number | undefined>(undefined);
   const [editingOverlayId, setEditingOverlayId] = useState<string | null>(null);
 
   // Add/Edit Text Form State (Sidebar)
@@ -124,6 +127,7 @@ export const PdfEditor: React.FC = () => {
   const [fontSize, setFontSize] = useState<number>(14);
   const [textColor, setTextColor] = useState<string>('#000000');
   const [bgWhiteout, setBgWhiteout] = useState<boolean>(true);
+  const [textWidthPct, setTextWidthPct] = useState<number | undefined>(undefined);
   const [clickX, setClickX] = useState<number>(10); // % default
   const [clickY, setClickY] = useState<number>(10); // % default
 
@@ -166,7 +170,8 @@ export const PdfEditor: React.FC = () => {
     try {
       setIsProcessing(true);
       setLoadingText('Loading PDF document...');
-      const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer) });
+      // CRITICAL FIX: Pass a sliced clone (buffer.slice(0)) to pdfjsLib so main thread arrayBuffer is NEVER detached!
+      const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer.slice(0)) });
       const pdf = await loadingTask.promise;
       pdfDocRef.current = pdf;
       setNumPages(pdf.numPages);
@@ -216,6 +221,7 @@ export const PdfEditor: React.FC = () => {
     setTextColor(overlay.color);
     setClickX(overlay.xPct);
     setClickY(overlay.yPct);
+    setTextWidthPct(overlay.widthPct);
     setBgWhiteout(overlay.bgWhiteout ?? true);
     setActiveTab('text');
   };
@@ -231,6 +237,7 @@ export const PdfEditor: React.FC = () => {
     setModalWhiteout(overlay.bgWhiteout ?? true);
     setModalXPct(overlay.xPct);
     setModalYPct(overlay.yPct);
+    setModalWidthPct(overlay.widthPct);
     setIsEditModalOpen(true);
   };
 
@@ -266,6 +273,7 @@ export const PdfEditor: React.FC = () => {
     setFontFamily('Helvetica');
     setFontSize(14);
     setTextColor('#000000');
+    setTextWidthPct(undefined);
     setBgWhiteout(true);
   };
 
@@ -385,6 +393,7 @@ export const PdfEditor: React.FC = () => {
     setModalWhiteout(true);
     setModalXPct(xPct);
     setModalYPct(yPct);
+    setModalWidthPct(undefined);
     setIsEditModalOpen(true);
   };
 
@@ -405,6 +414,7 @@ export const PdfEditor: React.FC = () => {
                 color: modalTextColor,
                 xPct: modalXPct,
                 yPct: modalYPct,
+                widthPct: modalWidthPct,
                 bgWhiteout: modalWhiteout
               }
             : t
@@ -421,6 +431,7 @@ export const PdfEditor: React.FC = () => {
         color: modalTextColor,
         xPct: modalXPct,
         yPct: modalYPct,
+        widthPct: modalWidthPct,
         bgWhiteout: modalWhiteout
       };
       setTextOverlays((prev) => [...prev, overlay]);
@@ -513,6 +524,63 @@ export const PdfEditor: React.FC = () => {
       setTextOverlays((prev) =>
         prev.map((item) =>
           item.id === textId ? { ...item, xPct: newXPct, yPct: newYPct } : item
+        )
+      );
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
+
+  // Handle Corner Drag Resize for Text Overlays (FREE TEXT BOX RESIZING!)
+  const handleTextResizeStart = (
+    e: React.MouseEvent,
+    textId: string,
+    corner: 'se' | 'sw' | 'ne' | 'nw'
+  ) => {
+    e.stopPropagation();
+    e.preventDefault();
+
+    if (!canvasRef.current) return;
+    const canvasRect = canvasRef.current.getBoundingClientRect();
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+
+    const t = textOverlays.find((item) => item.id === textId);
+    if (!t) return;
+
+    const startW = t.widthPct || 25;
+    const startXPct = t.xPct;
+    const startYPct = t.yPct;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const dxPx = moveEvent.clientX - startX;
+      const dxPct = (dxPx / canvasRect.width) * 100;
+
+      let newW = startW;
+      let newX = startXPct;
+
+      if (corner === 'se' || corner === 'ne') {
+        newW = Math.max(10, Math.min(90, startW + dxPct));
+      } else {
+        newW = Math.max(10, Math.min(90, startW - dxPct));
+        newX = Math.max(0, Math.min(95, startXPct + dxPct));
+      }
+
+      const roundedW = Math.round(newW);
+      const roundedX = Math.round(newX);
+
+      setTextWidthPct(roundedW);
+
+      setTextOverlays((prev) =>
+        prev.map((item) =>
+          item.id === textId ? { ...item, widthPct: roundedW, xPct: roundedX } : item
         )
       );
     };
@@ -752,6 +820,7 @@ export const PdfEditor: React.FC = () => {
     setModalWhiteout(true);
     setModalXPct(analyzedFont.xPct);
     setModalYPct(analyzedFont.yPct);
+    setModalWidthPct(undefined);
     setIsEditModalOpen(true);
   };
 
@@ -772,6 +841,7 @@ export const PdfEditor: React.FC = () => {
                 color: textColor,
                 xPct: clickX,
                 yPct: clickY,
+                widthPct: textWidthPct,
                 bgWhiteout
               }
             : t
@@ -788,6 +858,7 @@ export const PdfEditor: React.FC = () => {
         color: textColor,
         xPct: clickX,
         yPct: clickY,
+        widthPct: textWidthPct,
         bgWhiteout
       };
       setTextOverlays((prev) => [...prev, overlay]);
@@ -869,7 +940,8 @@ export const PdfEditor: React.FC = () => {
     setLoadingText('Preparing PDF document...');
 
     try {
-      const pdfDoc = await PDFDocument.load(arrayBuffer);
+      // CRITICAL FIX: Use arrayBuffer.slice(0) to pass a fresh un-detached copy of ArrayBuffer bytes to PDFDocument.load!
+      const pdfDoc = await PDFDocument.load(arrayBuffer.slice(0));
       const pages = pdfDoc.getPages();
 
       // Embed Standard Fonts
@@ -937,12 +1009,15 @@ export const PdfEditor: React.FC = () => {
 
         // Draw Whiteout Background rectangle to cover original PDF text if requested
         if (textOverlay.bgWhiteout) {
-          const textWidth = font.widthOfTextAtSize(textOverlay.text, textOverlay.fontSize);
+          const calcWidth = textOverlay.widthPct
+            ? (textOverlay.widthPct / 100) * width
+            : font.widthOfTextAtSize(textOverlay.text, textOverlay.fontSize) + 8;
           const textHeight = textOverlay.fontSize * 1.35;
+
           page.drawRectangle({
             x: Math.max(0, pdfX - 4),
             y: Math.max(0, pdfY - 3),
-            width: Math.max(20, textWidth + 8),
+            width: Math.max(20, calcWidth),
             height: textHeight,
             color: rgb(1, 1, 1) // White rectangle to erase original text
           });
@@ -1170,7 +1245,7 @@ export const PdfEditor: React.FC = () => {
                       ? 'bg-white dark:bg-dark-card text-brand-600 shadow-xs'
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
                   }`}
-                  title="Move Tool: Drag overlays or resize corners"
+                  title="Move & Scale Mode: Drag text/images or scale via corner handles"
                 >
                   <Hand size={14} />
                   <span>Move & Scale</span>
@@ -1353,7 +1428,7 @@ export const PdfEditor: React.FC = () => {
                     </div>
                   ))}
 
-                {/* Render Text Overlays for Current Page */}
+                {/* Render Text Overlays for Current Page (WITH CORNER RESIZE HANDLES & FREELY ADJUSTABLE TEXT BOX!) */}
                 {textOverlays
                   .filter((t) => t.pageNumber === currentPage)
                   .map((t) => (
@@ -1362,11 +1437,12 @@ export const PdfEditor: React.FC = () => {
                       onMouseDown={(e) => handleTextMoveStart(e, t.id)}
                       onClick={(e) => {
                         e.stopPropagation();
-                        openOverlayModalEdit(t);
+                        loadTextOverlayToForm(t);
                       }}
                       style={{
                         left: `${t.xPct}%`,
                         top: `${t.yPct}%`,
+                        width: t.widthPct ? `${t.widthPct}%` : 'auto',
                         color: t.color,
                         fontSize: `${t.fontSize * renderScale}px`,
                         fontFamily: t.fontFamily.includes('Times')
@@ -1376,7 +1452,7 @@ export const PdfEditor: React.FC = () => {
                           : 'Arial, sans-serif',
                         fontWeight: t.fontFamily.includes('Bold') ? 'bold' : 'normal'
                       }}
-                      className={`absolute z-10 p-1 rounded border border-dashed transition-all cursor-grab active:cursor-grabbing group ${
+                      className={`absolute z-10 p-1 rounded border border-dashed transition-all cursor-grab active:cursor-grabbing group break-words whitespace-pre-wrap ${
                         t.bgWhiteout ? 'bg-white shadow-sm ring-1 ring-slate-300' : 'bg-white/40 dark:bg-black/40'
                       } ${
                         selectedTextId === t.id
@@ -1409,6 +1485,22 @@ export const PdfEditor: React.FC = () => {
                       >
                         ×
                       </button>
+
+                      {/* Interactive Corner Resize Handles for Text Box */}
+                      {selectedTextId === t.id && (
+                        <>
+                          <div
+                            onMouseDown={(e) => handleTextResizeStart(e, t.id, 'se')}
+                            className="absolute bottom-0 right-0 translate-x-1/2 translate-y-1/2 w-3.5 h-3.5 bg-brand-600 border-2 border-white rounded-full cursor-se-resize shadow-md z-20 hover:scale-125 transition-transform"
+                            title="Drag corner to adjust text box width freely"
+                          />
+                          <div
+                            onMouseDown={(e) => handleTextResizeStart(e, t.id, 'sw')}
+                            className="absolute bottom-0 left-0 -translate-x-1/2 translate-y-1/2 w-3.5 h-3.5 bg-brand-600 border-2 border-white rounded-full cursor-sw-resize shadow-md z-20 hover:scale-125 transition-transform"
+                            title="Drag corner to adjust text box width freely"
+                          />
+                        </>
+                      )}
                     </div>
                   ))}
 
@@ -1493,7 +1585,7 @@ export const PdfEditor: React.FC = () => {
 
             <p className="text-[11px] text-slate-500 text-center flex items-center justify-center gap-1.5">
               <MousePointer size={13} className="text-brand-500" />
-              <span>Use <b>Move Mode</b> to drag/resize items. Use <b>Edit Text</b> to replace text, or <b>Crop Box</b> to erase content.</span>
+              <span>Use <b>Move Mode</b> to drag/resize text or images. Use <b>Edit Text</b> to replace text, or <b>Crop Box</b> to erase content.</span>
             </p>
           </div>
 
@@ -1748,6 +1840,11 @@ export const PdfEditor: React.FC = () => {
                           />
                         </div>
                       </div>
+
+                      <p className="text-[10px] text-brand-600 font-medium text-center flex items-center justify-center gap-1">
+                        <Move size={12} />
+                        <span>Drag with mouse to move image anywhere on PDF!</span>
+                      </p>
                     </div>
                   )}
 
