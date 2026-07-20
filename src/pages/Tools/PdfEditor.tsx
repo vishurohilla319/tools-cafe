@@ -17,7 +17,8 @@ import {
   MousePointer,
   Edit3,
   Check,
-  Eraser
+  Eraser,
+  Move
 } from 'lucide-react';
 import FileUpload from '../../components/shared/FileUpload';
 import ToolHeader from '../../components/shared/ToolHeader';
@@ -296,6 +297,102 @@ export const PdfEditor: React.FC = () => {
     } finally {
       setIsAnalyzing(false);
     }
+  };
+
+  // Handle Drag-to-Move for Image Overlays
+  const handleImageMoveStart = (e: React.MouseEvent, imgId: string) => {
+    e.stopPropagation();
+    e.preventDefault();
+
+    if (!canvasRef.current) return;
+    const canvasRect = canvasRef.current.getBoundingClientRect();
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+
+    const img = imageOverlays.find((i) => i.id === imgId);
+    if (!img) return;
+
+    selectImageOverlay(img);
+
+    const startXPct = img.xPct;
+    const startYPct = img.yPct;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const dxPx = moveEvent.clientX - startX;
+      const dyPx = moveEvent.clientY - startY;
+
+      const dxPct = (dxPx / canvasRect.width) * 100;
+      const dyPct = (dyPx / canvasRect.height) * 100;
+
+      const newXPct = Math.round(Math.max(0, Math.min(95, startXPct + dxPct)));
+      const newYPct = Math.round(Math.max(0, Math.min(95, startYPct + dyPct)));
+
+      setClickX(newXPct);
+      setClickY(newYPct);
+
+      setImageOverlays((prev) =>
+        prev.map((item) =>
+          item.id === imgId ? { ...item, xPct: newXPct, yPct: newYPct } : item
+        )
+      );
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
+
+  // Handle Drag-to-Move for Text Overlays
+  const handleTextMoveStart = (e: React.MouseEvent, textId: string) => {
+    e.stopPropagation();
+    e.preventDefault();
+
+    if (!canvasRef.current) return;
+    const canvasRect = canvasRef.current.getBoundingClientRect();
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+
+    const textOverlay = textOverlays.find((t) => t.id === textId);
+    if (!textOverlay) return;
+
+    loadTextOverlayToForm(textOverlay);
+
+    const startXPct = textOverlay.xPct;
+    const startYPct = textOverlay.yPct;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const dxPx = moveEvent.clientX - startX;
+      const dyPx = moveEvent.clientY - startY;
+
+      const dxPct = (dxPx / canvasRect.width) * 100;
+      const dyPct = (dyPx / canvasRect.height) * 100;
+
+      const newXPct = Math.round(Math.max(0, Math.min(95, startXPct + dxPct)));
+      const newYPct = Math.round(Math.max(0, Math.min(95, startYPct + dyPct)));
+
+      setClickX(newXPct);
+      setClickY(newYPct);
+
+      setTextOverlays((prev) =>
+        prev.map((item) =>
+          item.id === textId ? { ...item, xPct: newXPct, yPct: newYPct } : item
+        )
+      );
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
   };
 
   // Handle Corner Drag Resize for Image Overlays
@@ -711,6 +808,7 @@ export const PdfEditor: React.FC = () => {
                   .map((t) => (
                     <div
                       key={t.id}
+                      onMouseDown={(e) => handleTextMoveStart(e, t.id)}
                       onClick={(e) => {
                         e.stopPropagation();
                         loadTextOverlayToForm(t);
@@ -727,11 +825,11 @@ export const PdfEditor: React.FC = () => {
                           : 'Arial, sans-serif',
                         fontWeight: t.fontFamily.includes('Bold') ? 'bold' : 'normal'
                       }}
-                      className={`absolute z-10 p-1 rounded border border-dashed transition-all cursor-pointer ${
+                      className={`absolute z-10 p-1 rounded border border-dashed transition-all cursor-grab active:cursor-grabbing group ${
                         t.bgWhiteout ? 'bg-white shadow-sm ring-1 ring-slate-300' : 'bg-white/40 dark:bg-black/40'
                       } ${
                         selectedTextId === t.id
-                          ? 'border-brand-600 ring-2 ring-brand-500/40'
+                          ? 'border-brand-600 ring-2 ring-brand-500/40 shadow-md'
                           : 'border-slate-400 hover:border-brand-500'
                       }`}
                     >
@@ -749,12 +847,13 @@ export const PdfEditor: React.FC = () => {
                     </div>
                   ))}
 
-                {/* Render Image Overlays with Interactive Corner Drag Handles */}
+                {/* Render Image Overlays with Drag-to-Move and Corner Handles */}
                 {imageOverlays
                   .filter((img) => img.pageNumber === currentPage)
                   .map((img) => (
                     <div
                       key={img.id}
+                      onMouseDown={(e) => handleImageMoveStart(e, img.id)}
                       onClick={(e) => {
                         e.stopPropagation();
                         selectImageOverlay(img);
@@ -765,17 +864,25 @@ export const PdfEditor: React.FC = () => {
                         width: `${img.widthPct}%`,
                         height: `${img.heightPct}%`
                       }}
-                      className={`absolute z-10 p-0.5 rounded border border-dashed transition-all cursor-pointer group ${
+                      className={`absolute z-10 p-0.5 rounded border border-dashed transition-all cursor-grab active:cursor-grabbing group ${
                         selectedImageId === img.id
-                          ? 'border-brand-600 ring-2 ring-brand-500/50'
+                          ? 'border-brand-600 ring-2 ring-brand-500/50 shadow-lg'
                           : 'border-slate-400 hover:border-brand-500'
                       }`}
                     >
                       <img
                         src={img.dataUrl}
                         alt="Overlay"
-                        className="w-full h-full object-contain block pointer-events-none"
+                        className="w-full h-full object-contain block pointer-events-none select-none"
                       />
+
+                      {/* Move Handle Badge */}
+                      <div
+                        className="absolute -top-3 left-1/2 -translate-x-1/2 bg-brand-600 text-white rounded-full p-0.5 shadow z-20 opacity-80 group-hover:opacity-100 cursor-grab"
+                        title="Drag to move image"
+                      >
+                        <Move size={10} />
+                      </div>
 
                       {/* Remove Button */}
                       <button
@@ -825,7 +932,7 @@ export const PdfEditor: React.FC = () => {
 
             <p className="text-[11px] text-slate-500 text-center flex items-center justify-center gap-1.5">
               <MousePointer size={13} className="text-brand-500" />
-              <span>Click anywhere on the PDF page to analyze text, set coordinates, or drag image corner handles to resize images!</span>
+              <span>Click & drag any image or text to move it around. Use the corner handles to resize images!</span>
             </p>
           </div>
 
@@ -1069,8 +1176,9 @@ export const PdfEditor: React.FC = () => {
                         </div>
                       </div>
 
-                      <p className="text-[10px] text-brand-600 font-medium text-center">
-                        💡 Tip: You can also drag the blue corner handles on the PDF canvas to resize your image visually!
+                      <p className="text-[10px] text-brand-600 font-medium text-center flex items-center justify-center gap-1">
+                        <Move size={12} />
+                        <span>Drag with mouse to move image anywhere on PDF!</span>
                       </p>
                     </div>
                   )}
