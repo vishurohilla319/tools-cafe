@@ -231,7 +231,6 @@ export const PdfEditor: React.FC = () => {
       const dyPx = moveEvent.clientY - startY;
 
       const dxPct = (dxPx / canvasRect.width) * 100;
-      const dyPct = (dyPx / canvasRect.height) * 100;
 
       setImageOverlays((prev) =>
         prev.map((item) => {
