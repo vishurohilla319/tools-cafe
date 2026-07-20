@@ -17,8 +17,7 @@ import {
   MousePointer,
   Edit3,
   Check,
-  Eraser,
-  Move
+  Eraser
 } from 'lucide-react';
 import FileUpload from '../../components/shared/FileUpload';
 import ToolHeader from '../../components/shared/ToolHeader';
