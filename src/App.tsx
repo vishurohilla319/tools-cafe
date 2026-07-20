@@ -17,6 +17,7 @@ import JpgToPdf from './pages/Tools/JpgToPdf';
 import MergePdf from './pages/Tools/MergePdf';
 import DeletePdfPages from './pages/Tools/DeletePdfPages';
 import PdfToJpg from './pages/Tools/PdfToJpg';
+import PdfEditor from './pages/Tools/PdfEditor';
 import ImageCompressor from './pages/Tools/ImageCompressor';
 import PassportPhoto from './pages/Tools/PassportPhoto';
 import DocFormatter from './pages/Tools/DocFormatter';
@@ -65,6 +66,8 @@ export const App: React.FC = () => {
                   <Route path="/tools/merge-pdf" element={<MergePdf />} />
                   <Route path="/tools/delete-pdf-pages" element={<DeletePdfPages />} />
                   <Route path="/tools/pdf-to-jpg" element={<PdfToJpg />} />
+                  <Route path="/tools/pdf-editor" element={<PdfEditor />} />
+                  <Route path="/tools/edit-pdf" element={<PdfEditor />} />
                   <Route path="/tools/compress-image" element={<ImageCompressor />} />
                   
                   {/* New PDF Conversion Tools */}

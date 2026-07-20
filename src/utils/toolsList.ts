@@ -80,6 +80,16 @@ export const toolsList: Tool[] = [
     isClientSide: true
   },
   {
+    id: 'pdf-editor',
+    nameKey: 'tool.pdfEditor.title',
+    descKey: 'tool.pdfEditor.desc',
+    route: '/tools/pdf-editor',
+    category: 'pdf',
+    icon: 'Edit3',
+    isPopular: true,
+    isClientSide: true
+  },
+  {
     id: 'split-pdf',
     nameKey: 'Split PDF',
     descKey: 'Split PDF into individual files page-by-page.',
