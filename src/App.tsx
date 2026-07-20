@@ -68,6 +68,7 @@ export const App: React.FC = () => {
                   <Route path="/tools/pdf-to-jpg" element={<PdfToJpg />} />
                   <Route path="/tools/pdf-editor" element={<PdfEditor />} />
                   <Route path="/tools/edit-pdf" element={<PdfEditor />} />
+                  <Route path="/tools/add-image-to-pdf" element={<PdfEditor />} />
                   <Route path="/tools/compress-image" element={<ImageCompressor />} />
                   
                   {/* New PDF Conversion Tools */}

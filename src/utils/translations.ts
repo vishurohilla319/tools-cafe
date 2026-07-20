@@ -63,8 +63,8 @@ export const translations: Record<Language, Record<string, string>> = {
     'tool.deletePdf.desc': 'Remove unwanted pages from a PDF. Select page thumbnails to remove them.',
     'tool.pdfToJpg.title': 'PDF to JPG Converter',
     'tool.pdfToJpg.desc': 'Convert PDF pages into high-quality JPG or PNG images directly in your browser.',
-    'tool.pdfEditor.title': 'PDF Editor & Font Inserter',
-    'tool.pdfEditor.desc': 'Edit PDFs in your browser. Analyze existing fonts, add text overlays, and insert logos, stamps, or signatures.',
+    'tool.pdfEditor.title': 'Add Image into PDF',
+    'tool.pdfEditor.desc': 'Insert and overlay logos, signatures, stamps, and photos directly into any PDF document with instant positioning & resizing.',
     'tool.compressImage.title': 'Image Compressor',
     'tool.compressImage.desc': 'Compress JPG, PNG, or WebP images to a targeted size in KB or percentage quality.',
     
@@ -176,8 +176,8 @@ export const translations: Record<Language, Record<string, string>> = {
     'tool.deletePdf.desc': 'पीडीएफ से अनचाहे पेजों को हटाएं। डिलीट करने के लिए पेजों के थंबनेल चुनें।',
     'tool.pdfToJpg.title': 'पीडीएफ से जेपीजी कनवर्टर',
     'tool.pdfToJpg.desc': 'पीडीएफ पेजों को बिना सर्वर पर भेजे सीधे ब्राउज़र में हाई-क्वालिटी जेपीजी या पीएनजी इमेज में बदलें।',
-    'tool.pdfEditor.title': 'पीडीएफ एडिटर और फॉन्ट इंसर्टर',
-    'tool.pdfEditor.desc': 'ब्राउज़र में सीधे पीडीएफ एडिट करें। फॉन्ट का विश्लेषण करें, मैचिंग टेक्स्ट और इमेजेस या सिग्नेचर जोड़ें।',
+    'tool.pdfEditor.title': 'पीडीएफ में इमेज जोड़ें (Add Image into PDF)',
+    'tool.pdfEditor.desc': 'किसी भी पीडीएफ डॉक्यूमेंट में लोगो, सिग्नेचर, स्टाम्प या फोटो आसानी से जोड़ें और साइज एडजस्ट करें।',
     'tool.compressImage.title': 'इमेज कंप्रेसर',
     'tool.compressImage.desc': 'जेपीजी, पीएनजी, या वेबपी इमेज का साइज कम करें (केबी या क्वालिटी अनुसार)।',
 

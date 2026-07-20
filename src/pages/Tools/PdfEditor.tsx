@@ -2,166 +2,72 @@ import React, { useState, useRef, useEffect } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 // @ts-ignore
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import { PDFDocument } from 'pdf-lib';
 import { 
   Download, 
-  Type, 
   Image as ImageIcon, 
   Trash2, 
   ZoomIn, 
   ZoomOut, 
   ChevronLeft, 
   ChevronRight,
-  Plus,
-  Sparkles,
-  MousePointer,
-  Edit3,
-  Check,
-  Eraser,
   Move,
-  X,
-  Crop,
-  Hand
+  Upload
 } from 'lucide-react';
 import FileUpload from '../../components/shared/FileUpload';
 import ToolHeader from '../../components/shared/ToolHeader';
 import ProgressBar from '../../components/shared/ProgressBar';
-import { useLanguage } from '../../context/LanguageContext';
 
-// Set up worker
+// Set up PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
-export type StandardFontKey = 'Helvetica' | 'HelveticaBold' | 'TimesRoman' | 'TimesRomanBold' | 'Courier' | 'CourierBold';
-export type EditorMode = 'move' | 'text' | 'crop';
-
-export interface TextOverlay {
+export interface PlacedImageOverlay {
   id: string;
-  pageNumber: number;
-  text: string;
-  fontFamily: StandardFontKey;
-  fontSize: number;
-  color: string; // Hex color string
-  xPct: number; // 0 to 100 (% of page width)
-  yPct: number; // 0 to 100 (% of page height from top)
-  widthPct?: number; // Optional custom width %
-  heightPct?: number; // Optional custom height %
-  bgWhiteout?: boolean; // Cover original text under this box with white background
-}
-
-export interface ImageOverlay {
-  id: string;
-  pageNumber: number;
+  pageNumber: number; // Page number (1-indexed) or -1 for All Pages
+  fileName: string;
   dataUrl: string;
   mimeType: 'image/png' | 'image/jpeg';
   widthPct: number; // % of page width
   heightPct: number; // % of page height
-  xPct: number;
-  yPct: number;
-}
-
-export interface CropBoxOverlay {
-  id: string;
-  pageNumber: number;
-  xPct: number;
-  yPct: number;
-  widthPct: number;
-  heightPct: number;
-  color: string;
-}
-
-export interface AnalyzedFontInfo {
-  detectedText: string;
-  fontName: string;
-  fontSize: number;
-  suggestedFontKey: StandardFontKey;
-  xPct: number;
-  yPct: number;
+  xPct: number; // % from left of page
+  yPct: number; // % from top of page
+  opacity: number; // 0.1 to 1.0
 }
 
 export const PdfEditor: React.FC = () => {
-  const { t } = useLanguage();
+  // PDF Document States
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [arrayBuffer, setArrayBuffer] = useState<ArrayBuffer | null>(null);
   const [numPages, setNumPages] = useState<number>(0);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [renderScale, setRenderScale] = useState<number>(1.2);
 
-  // Editor Mode: 'move' | 'text' | 'crop'
-  const [editorMode, setEditorMode] = useState<EditorMode>('move');
-
-  // PDF JS Doc reference
+  // PDF.js references
   const pdfDocRef = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const containerRef = useRef<HTMLDivElement | null>(null);
 
-  // Overlays
-  const [textOverlays, setTextOverlays] = useState<TextOverlay[]>([]);
-  const [imageOverlays, setImageOverlays] = useState<ImageOverlay[]>([]);
-  const [cropBoxes, setCropBoxes] = useState<CropBoxOverlay[]>([]);
-  
-  // Selected Overlay for editing
-  const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
+  // Image Overlays
+  const [imageOverlays, setImageOverlays] = useState<PlacedImageOverlay[]>([]);
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
-  const [selectedCropId, setSelectedCropId] = useState<string | null>(null);
 
-  // Font Analysis state
-  const [analyzedFont, setAnalyzedFont] = useState<AnalyzedFontInfo | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  // Default parameters for new image additions
+  const [applyToAllPages] = useState<boolean>(false);
+  const [defaultWidthPct] = useState<number>(25);
+  const [defaultHeightPct] = useState<number>(15);
+  const [defaultOpacity] = useState<number>(1.0);
 
-  // Direct Text Edit Modal / Popover state
-  const [isEditModalOpen, setIsEditModalOpen] = useState<boolean>(false);
-  const [modalOriginalText, setModalOriginalText] = useState<string>('');
-  const [modalNewText, setModalNewText] = useState<string>('');
-  const [modalFontFamily, setModalFontFamily] = useState<StandardFontKey>('Helvetica');
-  const [modalFontSize, setModalFontSize] = useState<number>(14);
-  const [modalTextColor, setModalTextColor] = useState<string>('#000000');
-  const [modalWhiteout, setModalWhiteout] = useState<boolean>(true);
-  const [modalXPct, setModalXPct] = useState<number>(10);
-  const [modalYPct, setModalYPct] = useState<number>(10);
-  const [modalWidthPct, setModalWidthPct] = useState<number | undefined>(undefined);
-  const [editingOverlayId, setEditingOverlayId] = useState<string | null>(null);
-
-  // Add/Edit Text Form State (Sidebar)
-  const [newText, setNewText] = useState<string>('Sample Text');
-  const [fontFamily, setFontFamily] = useState<StandardFontKey>('Helvetica');
-  const [fontSize, setFontSize] = useState<number>(14);
-  const [textColor, setTextColor] = useState<string>('#000000');
-  const [bgWhiteout, setBgWhiteout] = useState<boolean>(true);
-  const [textWidthPct, setTextWidthPct] = useState<number | undefined>(undefined);
-  const [clickX, setClickX] = useState<number>(10); // % default
-  const [clickY, setClickY] = useState<number>(10); // % default
-
-  // Add Image Form State
-  const [uploadedImageData, setUploadedImageData] = useState<string | null>(null);
-  const [uploadedMimeType, setUploadedMimeType] = useState<'image/png' | 'image/jpeg'>('image/png');
-  const [imgWidthPct, setImgWidthPct] = useState<number>(25);
-  const [imgHeightPct, setImgHeightPct] = useState<number>(15);
-
-  // Crop Box Form State
-  const [cropBoxWidthPct, setCropBoxWidthPct] = useState<number>(30);
-  const [cropBoxHeightPct, setCropBoxHeightPct] = useState<number>(10);
-  const [cropBoxColor, setCropBoxColor] = useState<string>('#FFFFFF');
-
-  // Active Tab: 'text' | 'image' | 'crop' | 'analysis'
-  const [activeTab, setActiveTab] = useState<'text' | 'image' | 'crop' | 'analysis'>('text');
-
-  // Processing & Export
+  // Processing & Export Progress
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [progress, setProgress] = useState<number>(0);
   const [loadingText, setLoadingText] = useState<string>('');
 
-  const handleFilesSelected = async (files: File[]) => {
+  // Handle PDF Upload
+  const handlePdfSelected = async (files: File[]) => {
     if (files.length === 0) return;
     const file = files[0];
     setPdfFile(file);
-    setTextOverlays([]);
     setImageOverlays([]);
-    setCropBoxes([]);
-    setAnalyzedFont(null);
-    setSelectedTextId(null);
     setSelectedImageId(null);
-    setSelectedCropId(null);
-    setIsEditModalOpen(false);
     setCurrentPage(1);
 
     const buffer = await file.arrayBuffer();
@@ -170,7 +76,7 @@ export const PdfEditor: React.FC = () => {
     try {
       setIsProcessing(true);
       setLoadingText('Loading PDF document...');
-      // CRITICAL FIX: Pass a sliced clone (buffer.slice(0)) to pdfjsLib so main thread arrayBuffer is NEVER detached!
+      // Pass sliced clone (buffer.slice(0)) to prevent ArrayBuffer detachment in main thread
       const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer.slice(0)) });
       const pdf = await loadingTask.promise;
       pdfDocRef.current = pdf;
@@ -183,7 +89,7 @@ export const PdfEditor: React.FC = () => {
     }
   };
 
-  // Render current page to Canvas
+  // Render Current Page onto Canvas
   const renderCurrentPage = async () => {
     if (!pdfDocRef.current || !canvasRef.current) return;
 
@@ -210,238 +116,41 @@ export const PdfEditor: React.FC = () => {
     }
   }, [currentPage, renderScale, pdfDocRef.current]);
 
-  // Load selected text overlay into form for editing
-  const loadTextOverlayToForm = (overlay: TextOverlay) => {
-    setSelectedTextId(overlay.id);
-    setSelectedImageId(null);
-    setSelectedCropId(null);
-    setNewText(overlay.text);
-    setFontFamily(overlay.fontFamily);
-    setFontSize(overlay.fontSize);
-    setTextColor(overlay.color);
-    setClickX(overlay.xPct);
-    setClickY(overlay.yPct);
-    setTextWidthPct(overlay.widthPct);
-    setBgWhiteout(overlay.bgWhiteout ?? true);
-    setActiveTab('text');
-  };
+  // Handle Image Upload (PNG, JPG, Stamp, Logo, Signature, Watermark)
+  const handleImagesUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
-  // Open Direct Text Edit Modal for existing text overlay
-  const openOverlayModalEdit = (overlay: TextOverlay) => {
-    setEditingOverlayId(overlay.id);
-    setModalOriginalText(overlay.text);
-    setModalNewText(overlay.text);
-    setModalFontFamily(overlay.fontFamily);
-    setModalFontSize(overlay.fontSize);
-    setModalTextColor(overlay.color);
-    setModalWhiteout(overlay.bgWhiteout ?? true);
-    setModalXPct(overlay.xPct);
-    setModalYPct(overlay.yPct);
-    setModalWidthPct(overlay.widthPct);
-    setIsEditModalOpen(true);
-  };
+    Array.from(files).forEach((file) => {
+      const mime = file.type === 'image/jpeg' ? 'image/jpeg' : 'image/png';
+      const reader = new FileReader();
 
-  // Select image overlay
-  const selectImageOverlay = (img: ImageOverlay) => {
-    setSelectedImageId(img.id);
-    setSelectedTextId(null);
-    setSelectedCropId(null);
-    setImgWidthPct(img.widthPct);
-    setImgHeightPct(img.heightPct);
-    setClickX(img.xPct);
-    setClickY(img.yPct);
-    setActiveTab('image');
-  };
+      reader.onload = (evt) => {
+        const dataUrl = evt.target?.result as string;
+        if (!dataUrl) return;
 
-  // Select crop box overlay
-  const selectCropOverlay = (cropItem: CropBoxOverlay) => {
-    setSelectedCropId(cropItem.id);
-    setSelectedTextId(null);
-    setSelectedImageId(null);
-    setCropBoxWidthPct(cropItem.widthPct);
-    setCropBoxHeightPct(cropItem.heightPct);
-    setCropBoxColor(cropItem.color);
-    setClickX(cropItem.xPct);
-    setClickY(cropItem.yPct);
-    setActiveTab('crop');
-  };
+        const newOverlay: PlacedImageOverlay = {
+          id: 'img-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
+          pageNumber: applyToAllPages ? -1 : currentPage,
+          fileName: file.name,
+          dataUrl,
+          mimeType: mime,
+          widthPct: defaultWidthPct,
+          heightPct: defaultHeightPct,
+          xPct: 35, // Centered default X
+          yPct: 35, // Centered default Y
+          opacity: defaultOpacity
+        };
 
-  // Reset text form
-  const resetTextForm = () => {
-    setSelectedTextId(null);
-    setNewText('Sample Text');
-    setFontFamily('Helvetica');
-    setFontSize(14);
-    setTextColor('#000000');
-    setTextWidthPct(undefined);
-    setBgWhiteout(true);
-  };
-
-  // Handle Canvas Click: Depends on active Tool Mode ('text', 'crop', 'move')
-  const handleCanvasClick = async (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!canvasRef.current || !pdfDocRef.current) return;
-
-    const rect = canvasRef.current.getBoundingClientRect();
-    const xPx = e.clientX - rect.left;
-    const yPx = e.clientY - rect.top;
-
-    const xPct = Math.round((xPx / rect.width) * 100);
-    const yPct = Math.round((yPx / rect.height) * 100);
-
-    setClickX(xPct);
-    setClickY(yPct);
-
-    // If in Crop Mode, add a Crop / Erase Box at clicked position
-    if (editorMode === 'crop') {
-      const newCropBox: CropBoxOverlay = {
-        id: 'crop-' + Date.now(),
-        pageNumber: currentPage,
-        xPct,
-        yPct,
-        widthPct: cropBoxWidthPct,
-        heightPct: cropBoxHeightPct,
-        color: cropBoxColor
+        setImageOverlays((prev) => [...prev, newOverlay]);
+        setSelectedImageId(newOverlay.id);
       };
-      setCropBoxes((prev) => [...prev, newCropBox]);
-      setSelectedCropId(newCropBox.id);
-      setActiveTab('crop');
-      return;
-    }
 
-    // Update position of selected overlay if in Move Mode
-    if (editorMode === 'move') {
-      if (selectedImageId) {
-        setImageOverlays((prev) =>
-          prev.map((img) => (img.id === selectedImageId ? { ...img, xPct, yPct } : img))
-        );
-      } else if (selectedTextId) {
-        setTextOverlays((prev) =>
-          prev.map((t) => (t.id === selectedTextId ? { ...t, xPct, yPct } : t))
-        );
-      } else if (selectedCropId) {
-        setCropBoxes((prev) =>
-          prev.map((cb) => (cb.id === selectedCropId ? { ...cb, xPct, yPct } : cb))
-        );
-      }
-      return;
-    }
-
-    // In Text Mode ('text'): Analyze font & Open Direct Text Editing Modal
-    setIsAnalyzing(true);
-    let detectedLineText = '';
-    let fontName = 'Standard Sans-Serif';
-    let detectedSize = 14;
-    let suggestedFont: StandardFontKey = 'Helvetica';
-
-    try {
-      const page = await pdfDocRef.current.getPage(currentPage);
-      const textContent = await page.getTextContent();
-      const viewport = page.getViewport({ scale: 1.0 });
-
-      // Calculate clicked coordinates in PDF viewport point space
-      const pdfX = (xPx / rect.width) * viewport.width;
-      const pdfY = viewport.height - ((yPx / rect.height) * viewport.height);
-
-      // Find nearby items on the same horizontal text line
-      const lineItems = (textContent.items as any[]).filter((item) => {
-        if (!item.str || !item.transform) return false;
-        const itemX = item.transform[4];
-        const itemY = item.transform[5];
-        return Math.abs(pdfY - itemY) < 18 && Math.abs(pdfX - itemX) < 180;
-      });
-
-      if (lineItems.length > 0) {
-        lineItems.sort((a, b) => a.transform[4] - b.transform[4]);
-        detectedLineText = lineItems.map((i) => i.str).join(' ').replace(/\s+/g, ' ').trim();
-
-        const firstItem = lineItems[0];
-        fontName = firstItem.fontName || 'Unknown';
-        const transformScale = Math.hypot(firstItem.transform[0], firstItem.transform[1]);
-        detectedSize = Math.round(transformScale) || 14;
-
-        const fontLower = fontName.toLowerCase();
-        if (fontLower.includes('times') || fontLower.includes('serif')) {
-          suggestedFont = fontLower.includes('bold') ? 'TimesRomanBold' : 'TimesRoman';
-        } else if (fontLower.includes('courier') || fontLower.includes('mono')) {
-          suggestedFont = fontLower.includes('bold') ? 'CourierBold' : 'Courier';
-        } else if (fontLower.includes('bold')) {
-          suggestedFont = 'HelveticaBold';
-        }
-
-        setAnalyzedFont({
-          detectedText: detectedLineText,
-          fontName,
-          fontSize: detectedSize,
-          suggestedFontKey: suggestedFont,
-          xPct,
-          yPct
-        });
-      }
-    } catch (err) {
-      console.error('Font analysis error:', err);
-    } finally {
-      setIsAnalyzing(false);
-    }
-
-    // OPEN DIRECT TEXT EDIT MODAL
-    setEditingOverlayId(null);
-    setModalOriginalText(detectedLineText);
-    setModalNewText(detectedLineText || 'Edited Text');
-    setModalFontFamily(suggestedFont);
-    setModalFontSize(detectedSize);
-    setModalTextColor('#000000');
-    setModalWhiteout(true);
-    setModalXPct(xPct);
-    setModalYPct(yPct);
-    setModalWidthPct(undefined);
-    setIsEditModalOpen(true);
+      reader.readAsDataURL(file);
+    });
   };
 
-  // Save Direct Text Edit Modal
-  const handleApplyModalTextEdit = () => {
-    if (!modalNewText.trim()) return;
-
-    if (editingOverlayId) {
-      // Update existing overlay
-      setTextOverlays((prev) =>
-        prev.map((t) =>
-          t.id === editingOverlayId
-            ? {
-                ...t,
-                text: modalNewText,
-                fontFamily: modalFontFamily,
-                fontSize: modalFontSize,
-                color: modalTextColor,
-                xPct: modalXPct,
-                yPct: modalYPct,
-                widthPct: modalWidthPct,
-                bgWhiteout: modalWhiteout
-              }
-            : t
-        )
-      );
-    } else {
-      // Add new replacement text overlay
-      const overlay: TextOverlay = {
-        id: 'text-' + Date.now(),
-        pageNumber: currentPage,
-        text: modalNewText,
-        fontFamily: modalFontFamily,
-        fontSize: modalFontSize,
-        color: modalTextColor,
-        xPct: modalXPct,
-        yPct: modalYPct,
-        widthPct: modalWidthPct,
-        bgWhiteout: modalWhiteout
-      };
-      setTextOverlays((prev) => [...prev, overlay]);
-      setSelectedTextId(overlay.id);
-    }
-
-    setIsEditModalOpen(false);
-  };
-
-  // Handle Drag-to-Move for Image Overlays
+  // Handle Drag-to-Move Image on Canvas
   const handleImageMoveStart = (e: React.MouseEvent, imgId: string) => {
     e.stopPropagation();
     e.preventDefault();
@@ -455,7 +164,7 @@ export const PdfEditor: React.FC = () => {
     const img = imageOverlays.find((i) => i.id === imgId);
     if (!img) return;
 
-    selectImageOverlay(img);
+    setSelectedImageId(imgId);
 
     const startXPct = img.xPct;
     const startYPct = img.yPct;
@@ -469,9 +178,6 @@ export const PdfEditor: React.FC = () => {
 
       const newXPct = Math.round(Math.max(0, Math.min(95, startXPct + dxPct)));
       const newYPct = Math.round(Math.max(0, Math.min(95, startYPct + dyPct)));
-
-      setClickX(newXPct);
-      setClickY(newYPct);
 
       setImageOverlays((prev) =>
         prev.map((item) =>
@@ -489,158 +195,7 @@ export const PdfEditor: React.FC = () => {
     window.addEventListener('mouseup', onMouseUp);
   };
 
-  // Handle Drag-to-Move for Text Overlays
-  const handleTextMoveStart = (e: React.MouseEvent, textId: string) => {
-    e.stopPropagation();
-    e.preventDefault();
-
-    if (!canvasRef.current) return;
-    const canvasRect = canvasRef.current.getBoundingClientRect();
-
-    const startX = e.clientX;
-    const startY = e.clientY;
-
-    const textOverlay = textOverlays.find((t) => t.id === textId);
-    if (!textOverlay) return;
-
-    loadTextOverlayToForm(textOverlay);
-
-    const startXPct = textOverlay.xPct;
-    const startYPct = textOverlay.yPct;
-
-    const onMouseMove = (moveEvent: MouseEvent) => {
-      const dxPx = moveEvent.clientX - startX;
-      const dyPx = moveEvent.clientY - startY;
-
-      const dxPct = (dxPx / canvasRect.width) * 100;
-      const dyPct = (dyPx / canvasRect.height) * 100;
-
-      const newXPct = Math.round(Math.max(0, Math.min(95, startXPct + dxPct)));
-      const newYPct = Math.round(Math.max(0, Math.min(95, startYPct + dyPct)));
-
-      setClickX(newXPct);
-      setClickY(newYPct);
-
-      setTextOverlays((prev) =>
-        prev.map((item) =>
-          item.id === textId ? { ...item, xPct: newXPct, yPct: newYPct } : item
-        )
-      );
-    };
-
-    const onMouseUp = () => {
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
-    };
-
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
-  };
-
-  // Handle Corner Drag Resize for Text Overlays (FREE TEXT BOX RESIZING!)
-  const handleTextResizeStart = (
-    e: React.MouseEvent,
-    textId: string,
-    corner: 'se' | 'sw' | 'ne' | 'nw'
-  ) => {
-    e.stopPropagation();
-    e.preventDefault();
-
-    if (!canvasRef.current) return;
-    const canvasRect = canvasRef.current.getBoundingClientRect();
-
-    const startX = e.clientX;
-
-    const t = textOverlays.find((item) => item.id === textId);
-    if (!t) return;
-
-    const startW = t.widthPct || 25;
-    const startXPct = t.xPct;
-
-    const onMouseMove = (moveEvent: MouseEvent) => {
-      const dxPx = moveEvent.clientX - startX;
-      const dxPct = (dxPx / canvasRect.width) * 100;
-
-      let newW = startW;
-      let newX = startXPct;
-
-      if (corner === 'se' || corner === 'ne') {
-        newW = Math.max(10, Math.min(90, startW + dxPct));
-      } else {
-        newW = Math.max(10, Math.min(90, startW - dxPct));
-        newX = Math.max(0, Math.min(95, startXPct + dxPct));
-      }
-
-      const roundedW = Math.round(newW);
-      const roundedX = Math.round(newX);
-
-      setTextWidthPct(roundedW);
-
-      setTextOverlays((prev) =>
-        prev.map((item) =>
-          item.id === textId ? { ...item, widthPct: roundedW, xPct: roundedX } : item
-        )
-      );
-    };
-
-    const onMouseUp = () => {
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
-    };
-
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
-  };
-
-  // Handle Drag-to-Move for Crop Boxes
-  const handleCropMoveStart = (e: React.MouseEvent, cropId: string) => {
-    e.stopPropagation();
-    e.preventDefault();
-
-    if (!canvasRef.current) return;
-    const canvasRect = canvasRef.current.getBoundingClientRect();
-
-    const startX = e.clientX;
-    const startY = e.clientY;
-
-    const cb = cropBoxes.find((c) => c.id === cropId);
-    if (!cb) return;
-
-    selectCropOverlay(cb);
-
-    const startXPct = cb.xPct;
-    const startYPct = cb.yPct;
-
-    const onMouseMove = (moveEvent: MouseEvent) => {
-      const dxPx = moveEvent.clientX - startX;
-      const dyPx = moveEvent.clientY - startY;
-
-      const dxPct = (dxPx / canvasRect.width) * 100;
-      const dyPct = (dyPx / canvasRect.height) * 100;
-
-      const newXPct = Math.round(Math.max(0, Math.min(95, startXPct + dxPct)));
-      const newYPct = Math.round(Math.max(0, Math.min(95, startYPct + dyPct)));
-
-      setClickX(newXPct);
-      setClickY(newYPct);
-
-      setCropBoxes((prev) =>
-        prev.map((item) =>
-          item.id === cropId ? { ...item, xPct: newXPct, yPct: newYPct } : item
-        )
-      );
-    };
-
-    const onMouseUp = () => {
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
-    };
-
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
-  };
-
-  // Handle Corner Drag Resize for Image Overlays
+  // Handle Interactive Corner Drag Resizing (SE, SW, NE, NW)
   const handleImageResizeStart = (
     e: React.MouseEvent,
     imgId: string,
@@ -680,33 +235,27 @@ export const PdfEditor: React.FC = () => {
           let newY = startYPct;
 
           if (corner === 'se') {
-            newW = Math.max(5, Math.min(90, startW + dxPct));
-            newH = Math.max(5, Math.min(90, startH + dyPct));
+            newW = Math.max(5, Math.min(95, startW + dxPct));
+            newH = Math.max(5, Math.min(95, startH + dyPct));
           } else if (corner === 'sw') {
-            newW = Math.max(5, Math.min(90, startW - dxPct));
-            newH = Math.max(5, Math.min(90, startH + dyPct));
+            newW = Math.max(5, Math.min(95, startW - dxPct));
+            newH = Math.max(5, Math.min(95, startH + dyPct));
             newX = Math.max(0, Math.min(95, startXPct + dxPct));
           } else if (corner === 'ne') {
-            newW = Math.max(5, Math.min(90, startW + dxPct));
-            newH = Math.max(5, Math.min(90, startH - dyPct));
+            newW = Math.max(5, Math.min(95, startW + dxPct));
+            newH = Math.max(5, Math.min(95, startH - dyPct));
             newY = Math.max(0, Math.min(95, startYPct + dyPct));
           } else if (corner === 'nw') {
-            newW = Math.max(5, Math.min(90, startW - dxPct));
-            newH = Math.max(5, Math.min(90, startH - dyPct));
+            newW = Math.max(5, Math.min(95, startW - dxPct));
+            newH = Math.max(5, Math.min(95, startH - dyPct));
             newX = Math.max(0, Math.min(95, startXPct + dxPct));
             newY = Math.max(0, Math.min(95, startYPct + dyPct));
           }
 
-          const roundedW = Math.round(newW);
-          const roundedH = Math.round(newH);
-
-          setImgWidthPct(roundedW);
-          setImgHeightPct(roundedH);
-
           return {
             ...item,
-            widthPct: roundedW,
-            heightPct: roundedH,
+            widthPct: Math.round(newW),
+            heightPct: Math.round(newH),
             xPct: Math.round(newX),
             yPct: Math.round(newY)
           };
@@ -723,324 +272,38 @@ export const PdfEditor: React.FC = () => {
     window.addEventListener('mouseup', onMouseUp);
   };
 
-  // Handle Corner Drag Resize for Crop Boxes
-  const handleCropResizeStart = (
-    e: React.MouseEvent,
-    cropId: string,
-    corner: 'se' | 'sw' | 'ne' | 'nw'
-  ) => {
-    e.stopPropagation();
-    e.preventDefault();
-
-    if (!canvasRef.current) return;
-    const canvasRect = canvasRef.current.getBoundingClientRect();
-
-    const startX = e.clientX;
-    const startY = e.clientY;
-
-    const cb = cropBoxes.find((c) => c.id === cropId);
-    if (!cb) return;
-
-    const startW = cb.widthPct;
-    const startH = cb.heightPct;
-    const startXPct = cb.xPct;
-    const startYPct = cb.yPct;
-
-    const onMouseMove = (moveEvent: MouseEvent) => {
-      const dxPx = moveEvent.clientX - startX;
-      const dyPx = moveEvent.clientY - startY;
-
-      const dxPct = (dxPx / canvasRect.width) * 100;
-      const dyPct = (dyPx / canvasRect.height) * 100;
-
-      setCropBoxes((prev) =>
-        prev.map((item) => {
-          if (item.id !== cropId) return item;
-
-          let newW = startW;
-          let newH = startH;
-          let newX = startXPct;
-          let newY = startYPct;
-
-          if (corner === 'se') {
-            newW = Math.max(5, Math.min(90, startW + dxPct));
-            newH = Math.max(5, Math.min(90, startH + dyPct));
-          } else if (corner === 'sw') {
-            newW = Math.max(5, Math.min(90, startW - dxPct));
-            newH = Math.max(5, Math.min(90, startH + dyPct));
-            newX = Math.max(0, Math.min(95, startXPct + dxPct));
-          } else if (corner === 'ne') {
-            newW = Math.max(5, Math.min(90, startW + dxPct));
-            newH = Math.max(5, Math.min(90, startH - dyPct));
-            newY = Math.max(0, Math.min(95, startYPct + dyPct));
-          } else if (corner === 'nw') {
-            newW = Math.max(5, Math.min(90, startW - dxPct));
-            newH = Math.max(5, Math.min(90, startH - dyPct));
-            newX = Math.max(0, Math.min(95, startXPct + dxPct));
-            newY = Math.max(0, Math.min(95, startYPct + dyPct));
-          }
-
-          const roundedW = Math.round(newW);
-          const roundedH = Math.round(newH);
-
-          setCropBoxWidthPct(roundedW);
-          setCropBoxHeightPct(roundedH);
-
-          return {
-            ...item,
-            widthPct: roundedW,
-            heightPct: roundedH,
-            xPct: Math.round(newX),
-            yPct: Math.round(newY)
-          };
-        })
-      );
-    };
-
-    const onMouseUp = () => {
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
-    };
-
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
-  };
-
-  // Replace Detected Original PDF Text
-  const handleReplaceDetectedText = () => {
-    if (!analyzedFont) return;
-    setEditingOverlayId(null);
-    setModalOriginalText(analyzedFont.detectedText);
-    setModalNewText(analyzedFont.detectedText);
-    setModalFontFamily(analyzedFont.suggestedFontKey);
-    setModalFontSize(analyzedFont.fontSize);
-    setModalTextColor('#000000');
-    setModalWhiteout(true);
-    setModalXPct(analyzedFont.xPct);
-    setModalYPct(analyzedFont.yPct);
-    setModalWidthPct(undefined);
-    setIsEditModalOpen(true);
-  };
-
-  // Add or Save Text Overlay from Sidebar
-  const handleSaveTextOverlay = () => {
-    if (!newText.trim()) return;
-
-    if (selectedTextId) {
-      // Update existing overlay
-      setTextOverlays((prev) =>
-        prev.map((t) =>
-          t.id === selectedTextId
-            ? {
-                ...t,
-                text: newText,
-                fontFamily,
-                fontSize,
-                color: textColor,
-                xPct: clickX,
-                yPct: clickY,
-                widthPct: textWidthPct,
-                bgWhiteout
-              }
-            : t
-        )
-      );
-    } else {
-      // Create new overlay
-      const overlay: TextOverlay = {
-        id: 'text-' + Date.now(),
-        pageNumber: currentPage,
-        text: newText,
-        fontFamily,
-        fontSize,
-        color: textColor,
-        xPct: clickX,
-        yPct: clickY,
-        widthPct: textWidthPct,
-        bgWhiteout
-      };
-      setTextOverlays((prev) => [...prev, overlay]);
-      setSelectedTextId(overlay.id);
-    }
-  };
-
-  // Add Crop Box Overlay
-  const handleAddCropBox = () => {
-    const overlay: CropBoxOverlay = {
-      id: 'crop-' + Date.now(),
-      pageNumber: currentPage,
-      xPct: clickX,
-      yPct: clickY,
-      widthPct: cropBoxWidthPct,
-      heightPct: cropBoxHeightPct,
-      color: cropBoxColor
-    };
-    setCropBoxes((prev) => [...prev, overlay]);
-    setSelectedCropId(overlay.id);
-  };
-
-  // Image Upload Handler
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const mime = file.type === 'image/jpeg' ? 'image/jpeg' : 'image/png';
-    setUploadedMimeType(mime);
-
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      setUploadedImageData(evt.target?.result as string);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  // Add Image Overlay
-  const handleAddImageOverlay = () => {
-    if (!uploadedImageData) return;
-
-    const overlay: ImageOverlay = {
-      id: 'img-' + Date.now(),
-      pageNumber: currentPage,
-      dataUrl: uploadedImageData,
-      mimeType: uploadedMimeType,
-      widthPct: imgWidthPct,
-      heightPct: imgHeightPct,
-      xPct: clickX,
-      yPct: clickY
-    };
-
-    setImageOverlays((prev) => [...prev, overlay]);
-    setSelectedImageId(overlay.id);
-  };
-
-  // Remove Overlay
-  const handleRemoveText = (id: string) => {
-    setTextOverlays((prev) => prev.filter((t) => t.id !== id));
-    if (selectedTextId === id) setSelectedTextId(null);
-  };
-
+  // Remove Image Overlay
   const handleRemoveImage = (id: string) => {
     setImageOverlays((prev) => prev.filter((img) => img.id !== id));
     if (selectedImageId === id) setSelectedImageId(null);
   };
 
-  const handleRemoveCropBox = (id: string) => {
-    setCropBoxes((prev) => prev.filter((c) => c.id !== id));
-    if (selectedCropId === id) setSelectedCropId(null);
-  };
-
-  // Export Edited PDF
+  // Export PDF with Embedded Images
   const handleExportPdf = async () => {
     if (!arrayBuffer || !pdfFile) return;
 
+    if (imageOverlays.length === 0) {
+      alert('Please upload and place at least one image into the PDF before downloading.');
+      return;
+    }
+
     setIsProcessing(true);
-    setProgress(10);
+    setProgress(15);
     setLoadingText('Preparing PDF document...');
 
     try {
-      // CRITICAL FIX: Use arrayBuffer.slice(0) to pass a fresh un-detached copy of ArrayBuffer bytes to PDFDocument.load!
+      // Safe sliced arrayBuffer clone to prevent ArrayBuffer detachment error
       const pdfDoc = await PDFDocument.load(arrayBuffer.slice(0));
       const pages = pdfDoc.getPages();
 
-      // Embed Standard Fonts
-      setProgress(25);
-      setLoadingText('Embedding custom fonts...');
-      const embeddedFonts = {
-        Helvetica: await pdfDoc.embedFont(StandardFonts.Helvetica),
-        HelveticaBold: await pdfDoc.embedFont(StandardFonts.HelveticaBold),
-        TimesRoman: await pdfDoc.embedFont(StandardFonts.TimesRoman),
-        TimesRomanBold: await pdfDoc.embedFont(StandardFonts.TimesRomanBold),
-        Courier: await pdfDoc.embedFont(StandardFonts.Courier),
-        CourierBold: await pdfDoc.embedFont(StandardFonts.CourierBold),
-      };
-
-      // Draw Crop / Whiteout Boxes First
       setProgress(40);
-      setLoadingText('Applying Whiteout / Crop boxes...');
-      for (const cb of cropBoxes) {
-        const pageIdx = cb.pageNumber - 1;
-        if (pageIdx < 0 || pageIdx >= pages.length) continue;
+      setLoadingText('Embedding uploaded images...');
 
-        const page = pages[pageIdx];
-        const { width, height } = page.getSize();
+      // Loop through all placed image overlays
+      for (let index = 0; index < imageOverlays.length; index++) {
+        const imgOverlay = imageOverlays[index];
 
-        const boxW = (cb.widthPct / 100) * width;
-        const boxH = (cb.heightPct / 100) * height;
-        const pdfX = (cb.xPct / 100) * width;
-        const pdfY = height - ((cb.yPct / 100) * height) - boxH;
-
-        const hex = cb.color.replace('#', '');
-        const r = parseInt(hex.substring(0, 2) || 'FF', 16) / 255;
-        const g = parseInt(hex.substring(2, 4) || 'FF', 16) / 255;
-        const b = parseInt(hex.substring(4, 6) || 'FF', 16) / 255;
-
-        page.drawRectangle({
-          x: Math.max(0, pdfX),
-          y: Math.max(0, pdfY),
-          width: boxW,
-          height: boxH,
-          color: rgb(r, g, b)
-        });
-      }
-
-      // Draw Text Overlays
-      setProgress(60);
-      setLoadingText('Drawing text overlays...');
-      for (const textOverlay of textOverlays) {
-        const pageIdx = textOverlay.pageNumber - 1;
-        if (pageIdx < 0 || pageIdx >= pages.length) continue;
-
-        const page = pages[pageIdx];
-        const { width, height } = page.getSize();
-
-        // Convert Hex Color to RGB
-        const hex = textOverlay.color.replace('#', '');
-        const r = parseInt(hex.substring(0, 2) || '00', 16) / 255;
-        const g = parseInt(hex.substring(2, 4) || '00', 16) / 255;
-        const b = parseInt(hex.substring(4, 6) || '00', 16) / 255;
-
-        const font = embeddedFonts[textOverlay.fontFamily] || embeddedFonts.Helvetica;
-
-        // Calculate PDF point coordinates (pdf-lib origin is bottom-left)
-        const pdfX = (textOverlay.xPct / 100) * width;
-        const pdfY = height - ((textOverlay.yPct / 100) * height) - textOverlay.fontSize;
-
-        // Draw Whiteout Background rectangle to cover original PDF text if requested
-        if (textOverlay.bgWhiteout) {
-          const calcWidth = textOverlay.widthPct
-            ? (textOverlay.widthPct / 100) * width
-            : font.widthOfTextAtSize(textOverlay.text, textOverlay.fontSize) + 8;
-          const textHeight = textOverlay.fontSize * 1.35;
-
-          page.drawRectangle({
-            x: Math.max(0, pdfX - 4),
-            y: Math.max(0, pdfY - 3),
-            width: Math.max(20, calcWidth),
-            height: textHeight,
-            color: rgb(1, 1, 1) // White rectangle to erase original text
-          });
-        }
-
-        page.drawText(textOverlay.text, {
-          x: Math.max(0, pdfX),
-          y: Math.max(0, pdfY),
-          size: textOverlay.fontSize,
-          font,
-          color: rgb(r, g, b)
-        });
-      }
-
-      // Draw Image Overlays
-      setProgress(80);
-      setLoadingText('Embedding image overlays...');
-      for (const imgOverlay of imageOverlays) {
-        const pageIdx = imgOverlay.pageNumber - 1;
-        if (pageIdx < 0 || pageIdx >= pages.length) continue;
-
-        const page = pages[pageIdx];
-        const { width, height } = page.getSize();
-
-        // Base64 string to Uint8Array
+        // Base64 to Uint8Array bytes
         const base64Data = imgOverlay.dataUrl.split(',')[1];
         const binaryStr = atob(base64Data);
         const bytes = new Uint8Array(binaryStr.length);
@@ -1055,48 +318,69 @@ export const PdfEditor: React.FC = () => {
           embeddedImage = await pdfDoc.embedJpg(bytes);
         }
 
-        const imgWidth = (imgOverlay.widthPct / 100) * width;
-        const imgHeight = (imgOverlay.heightPct / 100) * height;
-        const pdfX = (imgOverlay.xPct / 100) * width;
-        const pdfY = height - ((imgOverlay.yPct / 100) * height) - imgHeight;
+        // Target pages
+        const targetPageIndices: number[] = [];
+        if (imgOverlay.pageNumber === -1) {
+          for (let p = 0; p < pages.length; p++) targetPageIndices.push(p);
+        } else {
+          const pIdx = imgOverlay.pageNumber - 1;
+          if (pIdx >= 0 && pIdx < pages.length) targetPageIndices.push(pIdx);
+        }
 
-        page.drawImage(embeddedImage, {
-          x: Math.max(0, pdfX),
-          y: Math.max(0, pdfY),
-          width: imgWidth,
-          height: imgHeight
-        });
+        // Draw image on target pages
+        for (const pageIdx of targetPageIndices) {
+          const page = pages[pageIdx];
+          const { width, height } = page.getSize();
+
+          const imgWidth = (imgOverlay.widthPct / 100) * width;
+          const imgHeight = (imgOverlay.heightPct / 100) * height;
+
+          // Convert Top-Left percentage origin to pdf-lib Bottom-Left origin
+          const pdfX = (imgOverlay.xPct / 100) * width;
+          const pdfY = height - ((imgOverlay.yPct / 100) * height) - imgHeight;
+
+          page.drawImage(embeddedImage, {
+            x: Math.max(0, pdfX),
+            y: Math.max(0, pdfY),
+            width: imgWidth,
+            height: imgHeight,
+            opacity: imgOverlay.opacity ?? 1.0
+          });
+        }
+
+        setProgress(40 + Math.round(((index + 1) / imageOverlays.length) * 45));
       }
 
-      // Save PDF
+      // Save and Download
       setProgress(90);
-      setLoadingText('Generating updated PDF file...');
+      setLoadingText('Generating PDF file...');
       const pdfBytes = await pdfDoc.save();
 
-      // Trigger Download
       const blob = new Blob([pdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${pdfFile.name.replace(/\.[^/.]+$/, '')}_edited.pdf`;
+      link.download = `${pdfFile.name.replace(/\.[^/.]+$/, '')}_with_images.pdf`;
       link.click();
       URL.revokeObjectURL(url);
 
       setProgress(100);
     } catch (err: any) {
       console.error(err);
-      alert(err?.message || 'Error processing and exporting edited PDF.');
+      alert(err?.message || 'Error embedding images into PDF.');
     } finally {
       setIsProcessing(false);
     }
   };
 
+  const selectedOverlay = imageOverlays.find((i) => i.id === selectedImageId);
+
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
       <ToolHeader
         toolId="pdf-editor"
-        title={t('tool.pdfEditor.title')}
-        description={t('tool.pdfEditor.desc')}
+        title="Add Image into PDF"
+        description="Insert, scale, position, and overlay images, stamps, signatures, and logos into any PDF document with instant corner dragging."
         category="pdf"
         categoryName="PDF Tools"
       />
@@ -1106,178 +390,31 @@ export const PdfEditor: React.FC = () => {
           <FileUpload
             accept=".pdf"
             multiple={false}
-            onFilesSelected={handleFilesSelected}
-            label="Upload PDF Document to Edit"
+            onFilesSelected={handlePdfSelected}
+            label="Upload PDF Document"
           />
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 relative">
 
-          {/* DIRECT INLINE PDF TEXT EDIT MODAL POPUP */}
-          {isEditModalOpen && (
-            <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-              <div className="bg-white dark:bg-dark-card border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4 animate-in fade-in zoom-in duration-150">
-                <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3">
-                  <h3 className="font-bold text-sm text-slate-800 dark:text-slate-100 flex items-center gap-2">
-                    <Edit3 size={16} className="text-brand-500" />
-                    <span>Edit & Replace PDF Text</span>
-                  </h3>
-                  <button
-                    onClick={() => setIsEditModalOpen(false)}
-                    className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1"
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
-
-                {modalOriginalText ? (
-                  <div className="bg-slate-50 dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 text-xs">
-                    <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">Detected Original PDF Text:</span>
-                    <p className="font-semibold text-slate-700 dark:text-slate-300 mt-0.5 font-mono truncate">
-                      "{modalOriginalText}"
-                    </p>
-                  </div>
-                ) : (
-                  <p className="text-[11px] text-brand-600 font-medium">
-                    💡 Clicked location (X: {modalXPct}%, Y: {modalYPct}%). Type your replacement text below:
-                  </p>
-                )}
-
-                <div className="space-y-3 text-xs font-semibold">
-                  <div>
-                    <label className="block text-slate-700 dark:text-slate-300 mb-1">New Replacement Text</label>
-                    <textarea
-                      rows={2}
-                      value={modalNewText}
-                      onChange={(e) => setModalNewText(e.target.value)}
-                      className="w-full p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-xs focus:ring-2 focus:ring-brand-500 outline-none"
-                      placeholder="Type edited text to place on PDF..."
-                      autoFocus
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-slate-700 dark:text-slate-300 mb-1">Font Family</label>
-                      <select
-                        value={modalFontFamily}
-                        onChange={(e) => setModalFontFamily(e.target.value as StandardFontKey)}
-                        className="w-full p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 text-xs outline-none"
-                      >
-                        <option value="Helvetica">Helvetica / Arial</option>
-                        <option value="HelveticaBold">Helvetica Bold</option>
-                        <option value="TimesRoman">Times Roman</option>
-                        <option value="TimesRomanBold">Times Roman Bold</option>
-                        <option value="Courier">Courier Mono</option>
-                        <option value="CourierBold">Courier Bold</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-slate-700 dark:text-slate-300 mb-1">Font Size (pt)</label>
-                      <input
-                        type="number"
-                        min={6}
-                        max={120}
-                        value={modalFontSize}
-                        onChange={(e) => setModalFontSize(Number(e.target.value))}
-                        className="w-full p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 text-xs outline-none"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex justify-between items-center pt-1">
-                    <div className="flex items-center gap-2">
-                      <label className="text-slate-700 dark:text-slate-300 text-xs">Color:</label>
-                      <input
-                        type="color"
-                        value={modalTextColor}
-                        onChange={(e) => setModalTextColor(e.target.value)}
-                        className="w-7 h-7 p-0.5 rounded border border-slate-200 cursor-pointer"
-                      />
-                    </div>
-
-                    <label className="flex items-center gap-1.5 cursor-pointer text-xs">
-                      <input
-                        type="checkbox"
-                        checked={modalWhiteout}
-                        onChange={(e) => setModalWhiteout(e.target.checked)}
-                        className="rounded text-brand-600 focus:ring-brand-500 h-3.5 w-3.5"
-                      />
-                      <span className="text-slate-700 dark:text-slate-300 font-bold">Whiteout Old Text</span>
-                    </label>
-                  </div>
-                </div>
-
-                <div className="flex gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-                  <button
-                    onClick={() => setIsEditModalOpen(false)}
-                    className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 font-bold text-xs hover:bg-slate-50 dark:hover:bg-slate-900 transition-all"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleApplyModalTextEdit}
-                    className="flex-1 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-brand-600/20 transition-all"
-                  >
-                    <Check size={14} />
-                    <span>Apply Text Edit</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-          
-          {/* Main Interactive Workspace (Canvas & Overlay Preview) */}
+          {/* MAIN CANVAS WORKSPACE */}
           <div className="lg:col-span-2 space-y-4">
             
-            {/* Toolbar with Tool Modes Selector */}
+            {/* Top Controls Toolbar */}
             <div className="flex flex-wrap justify-between items-center bg-white dark:bg-dark-card p-3 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm gap-2">
               
-              {/* Tool Modes */}
-              <div className="flex items-center bg-slate-100 dark:bg-slate-900 p-1 rounded-lg border border-slate-200 dark:border-slate-800 gap-1">
-                <button
-                  onClick={() => setEditorMode('move')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1.5 transition-all ${
-                    editorMode === 'move'
-                      ? 'bg-white dark:bg-dark-card text-brand-600 shadow-xs'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-                  }`}
-                  title="Move & Scale Mode: Drag text/images or scale via corner handles"
-                >
-                  <Hand size={14} />
-                  <span>Move & Scale</span>
-                </button>
-
-                <button
-                  onClick={() => setEditorMode('text')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1.5 transition-all ${
-                    editorMode === 'text'
-                      ? 'bg-white dark:bg-dark-card text-brand-600 shadow-xs'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-                  }`}
-                  title="Text Mode: Click anywhere to edit or add text"
-                >
-                  <Edit3 size={14} />
-                  <span>Edit Text</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setEditorMode('crop');
-                    setActiveTab('crop');
-                  }}
-                  className={`px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1.5 transition-all ${
-                    editorMode === 'crop'
-                      ? 'bg-white dark:bg-dark-card text-brand-600 shadow-xs'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-                  }`}
-                  title="Crop / Whiteout Tool: Click to place whiteout box to hide content"
-                >
-                  <Crop size={14} />
-                  <span>Crop & Erase Box</span>
-                </button>
-              </div>
+              {/* Add Image Button */}
+              <label className="cursor-pointer bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs px-3.5 py-2 rounded-lg flex items-center gap-1.5 shadow-md shadow-brand-600/20 transition-all">
+                <Upload size={14} />
+                <span>+ Upload Image / Stamp / Signature</span>
+                <input
+                  type="file"
+                  accept="image/png, image/jpeg"
+                  multiple
+                  onChange={handleImagesUpload}
+                  className="hidden"
+                />
+              </label>
 
               {/* Page Controls */}
               <div className="flex items-center gap-2">
@@ -1290,7 +427,7 @@ export const PdfEditor: React.FC = () => {
                   <ChevronLeft size={16} />
                 </button>
                 <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
-                  Pg {currentPage} / {numPages}
+                  Page {currentPage} of {numPages}
                 </span>
                 <button
                   disabled={currentPage >= numPages}
@@ -1302,7 +439,7 @@ export const PdfEditor: React.FC = () => {
                 </button>
               </div>
 
-              {/* Zoom & PDF Change */}
+              {/* Zoom & Change PDF */}
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setRenderScale((s) => Math.max(0.8, s - 0.2))}
@@ -1344,184 +481,30 @@ export const PdfEditor: React.FC = () => {
                 </div>
               )}
 
-              <div
-                ref={containerRef}
-                onClick={handleCanvasClick}
-                className={`relative shadow-2xl rounded bg-white inline-block select-none ${
-                  editorMode === 'crop'
-                    ? 'cursor-crosshair'
-                    : editorMode === 'text'
-                    ? 'cursor-text'
-                    : 'cursor-default'
-                }`}
-              >
+              <div className="relative shadow-2xl rounded bg-white inline-block select-none">
                 <canvas ref={canvasRef} className="block rounded max-w-full" />
 
-                {/* Render Crop / Whiteout Erase Boxes */}
-                {cropBoxes
-                  .filter((cb) => cb.pageNumber === currentPage)
-                  .map((cb) => (
-                    <div
-                      key={cb.id}
-                      onMouseDown={(e) => handleCropMoveStart(e, cb.id)}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        selectCropOverlay(cb);
-                      }}
-                      style={{
-                        left: `${cb.xPct}%`,
-                        top: `${cb.yPct}%`,
-                        width: `${cb.widthPct}%`,
-                        height: `${cb.heightPct}%`,
-                        backgroundColor: cb.color
-                      }}
-                      className={`absolute z-10 border-2 border-dashed transition-all cursor-grab active:cursor-grabbing group shadow-xs ${
-                        selectedCropId === cb.id
-                          ? 'border-amber-500 ring-2 ring-amber-500/40'
-                          : 'border-slate-400 hover:border-amber-500'
-                      }`}
-                    >
-                      {/* Whiteout Label */}
-                      <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold text-slate-400 pointer-events-none opacity-60">
-                        [Whiteout Erase Box]
-                      </span>
-
-                      {/* Remove Button */}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleRemoveCropBox(cb.id);
-                        }}
-                        className="absolute -top-2 -right-2 bg-rose-600 text-white rounded-full w-4 h-4 text-[10px] flex items-center justify-center font-bold shadow z-20"
-                        title="Delete Whiteout Box"
-                      >
-                        ×
-                      </button>
-
-                      {/* Interactive Corner Resize Handles for Crop Box */}
-                      {selectedCropId === cb.id && (
-                        <>
-                          <div
-                            onMouseDown={(e) => handleCropResizeStart(e, cb.id, 'se')}
-                            className="absolute bottom-0 right-0 translate-x-1/2 translate-y-1/2 w-4 h-4 bg-amber-500 border-2 border-white rounded-full cursor-se-resize shadow-md z-20 hover:scale-125 transition-transform"
-                            title="Drag corner to resize crop box"
-                          />
-                          <div
-                            onMouseDown={(e) => handleCropResizeStart(e, cb.id, 'sw')}
-                            className="absolute bottom-0 left-0 -translate-x-1/2 translate-y-1/2 w-4 h-4 bg-amber-500 border-2 border-white rounded-full cursor-sw-resize shadow-md z-20 hover:scale-125 transition-transform"
-                            title="Drag corner to resize crop box"
-                          />
-                          <div
-                            onMouseDown={(e) => handleCropResizeStart(e, cb.id, 'ne')}
-                            className="absolute top-0 right-0 translate-x-1/2 -translate-y-1/2 w-4 h-4 bg-amber-500 border-2 border-white rounded-full cursor-ne-resize shadow-md z-20 hover:scale-125 transition-transform"
-                            title="Drag corner to resize crop box"
-                          />
-                          <div
-                            onMouseDown={(e) => handleCropResizeStart(e, cb.id, 'nw')}
-                            className="absolute top-0 left-0 -translate-x-1/2 -translate-y-1/2 w-4 h-4 bg-amber-500 border-2 border-white rounded-full cursor-nw-resize shadow-md z-20 hover:scale-125 transition-transform"
-                            title="Drag corner to resize crop box"
-                          />
-                        </>
-                      )}
-                    </div>
-                  ))}
-
-                {/* Render Text Overlays for Current Page (WITH CORNER RESIZE HANDLES & FREELY ADJUSTABLE TEXT BOX!) */}
-                {textOverlays
-                  .filter((t) => t.pageNumber === currentPage)
-                  .map((t) => (
-                    <div
-                      key={t.id}
-                      onMouseDown={(e) => handleTextMoveStart(e, t.id)}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        loadTextOverlayToForm(t);
-                      }}
-                      style={{
-                        left: `${t.xPct}%`,
-                        top: `${t.yPct}%`,
-                        width: t.widthPct ? `${t.widthPct}%` : 'auto',
-                        color: t.color,
-                        fontSize: `${t.fontSize * renderScale}px`,
-                        fontFamily: t.fontFamily.includes('Times')
-                          ? 'Times New Roman, serif'
-                          : t.fontFamily.includes('Courier')
-                          ? 'Courier New, monospace'
-                          : 'Arial, sans-serif',
-                        fontWeight: t.fontFamily.includes('Bold') ? 'bold' : 'normal'
-                      }}
-                      className={`absolute z-10 p-1 rounded border border-dashed transition-all cursor-grab active:cursor-grabbing group break-words whitespace-pre-wrap ${
-                        t.bgWhiteout ? 'bg-white shadow-sm ring-1 ring-slate-300' : 'bg-white/40 dark:bg-black/40'
-                      } ${
-                        selectedTextId === t.id
-                          ? 'border-brand-600 ring-2 ring-brand-500/40 shadow-md'
-                          : 'border-slate-400 hover:border-brand-500'
-                      }`}
-                    >
-                      <span>{t.text}</span>
-                      
-                      {/* Edit Badge */}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openOverlayModalEdit(t);
-                        }}
-                        className="ml-1.5 text-brand-600 hover:text-brand-800 font-bold text-[10px] inline-flex items-center"
-                        title="Click to edit text"
-                      >
-                        <Edit3 size={11} />
-                      </button>
-
-                      {/* Remove Button */}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleRemoveText(t.id);
-                        }}
-                        className="ml-1 text-rose-600 hover:text-rose-800 font-bold text-[10px] inline-flex items-center"
-                        title="Delete Overlay"
-                      >
-                        ×
-                      </button>
-
-                      {/* Interactive Corner Resize Handles for Text Box */}
-                      {selectedTextId === t.id && (
-                        <>
-                          <div
-                            onMouseDown={(e) => handleTextResizeStart(e, t.id, 'se')}
-                            className="absolute bottom-0 right-0 translate-x-1/2 translate-y-1/2 w-3.5 h-3.5 bg-brand-600 border-2 border-white rounded-full cursor-se-resize shadow-md z-20 hover:scale-125 transition-transform"
-                            title="Drag corner to adjust text box width freely"
-                          />
-                          <div
-                            onMouseDown={(e) => handleTextResizeStart(e, t.id, 'sw')}
-                            className="absolute bottom-0 left-0 -translate-x-1/2 translate-y-1/2 w-3.5 h-3.5 bg-brand-600 border-2 border-white rounded-full cursor-sw-resize shadow-md z-20 hover:scale-125 transition-transform"
-                            title="Drag corner to adjust text box width freely"
-                          />
-                        </>
-                      )}
-                    </div>
-                  ))}
-
-                {/* Render Image Overlays with Drag-to-Move and Corner Handles */}
+                {/* Render Placed Image Overlays for Current Page */}
                 {imageOverlays
-                  .filter((img) => img.pageNumber === currentPage)
+                  .filter((img) => img.pageNumber === currentPage || img.pageNumber === -1)
                   .map((img) => (
                     <div
                       key={img.id}
                       onMouseDown={(e) => handleImageMoveStart(e, img.id)}
                       onClick={(e) => {
                         e.stopPropagation();
-                        selectImageOverlay(img);
+                        setSelectedImageId(img.id);
                       }}
                       style={{
                         left: `${img.xPct}%`,
                         top: `${img.yPct}%`,
                         width: `${img.widthPct}%`,
-                        height: `${img.heightPct}%`
+                        height: `${img.heightPct}%`,
+                        opacity: img.opacity
                       }}
-                      className={`absolute z-10 p-0.5 rounded border border-dashed transition-all cursor-grab active:cursor-grabbing group ${
+                      className={`absolute z-10 p-0.5 rounded border-2 border-dashed transition-all cursor-grab active:cursor-grabbing group ${
                         selectedImageId === img.id
-                          ? 'border-brand-600 ring-2 ring-brand-500/50 shadow-lg'
+                          ? 'border-brand-600 ring-4 ring-brand-500/30 shadow-2xl'
                           : 'border-slate-400 hover:border-brand-500'
                       }`}
                     >
@@ -1536,39 +519,43 @@ export const PdfEditor: React.FC = () => {
                         className="absolute -top-3 left-1/2 -translate-x-1/2 bg-brand-600 text-white rounded-full p-0.5 shadow z-20 opacity-80 group-hover:opacity-100 cursor-grab"
                         title="Drag to move image"
                       >
-                        <Move size={10} />
+                        <Move size={11} />
                       </div>
 
-                      {/* Remove Button */}
+                      {/* Delete Button Badge */}
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           handleRemoveImage(img.id);
                         }}
-                        className="absolute -top-2 -right-2 bg-rose-600 text-white rounded-full w-4 h-4 text-[10px] flex items-center justify-center font-bold shadow z-20"
-                        title="Delete Image Overlay"
+                        className="absolute -top-2 -right-2 bg-rose-600 hover:bg-rose-700 text-white rounded-full w-5 h-5 text-xs flex items-center justify-center font-bold shadow z-20"
+                        title="Remove Image"
                       >
                         ×
                       </button>
 
-                      {/* Interactive Corner Resize Handles */}
+                      {/* Interactive 4 Corner Drag Handles */}
                       {selectedImageId === img.id && (
                         <>
+                          {/* Bottom-Right Handle */}
                           <div
                             onMouseDown={(e) => handleImageResizeStart(e, img.id, 'se')}
                             className="absolute bottom-0 right-0 translate-x-1/2 translate-y-1/2 w-4 h-4 bg-brand-600 border-2 border-white rounded-full cursor-se-resize shadow-md z-20 hover:scale-125 transition-transform"
                             title="Drag corner to resize image"
                           />
+                          {/* Bottom-Left Handle */}
                           <div
                             onMouseDown={(e) => handleImageResizeStart(e, img.id, 'sw')}
                             className="absolute bottom-0 left-0 -translate-x-1/2 translate-y-1/2 w-4 h-4 bg-brand-600 border-2 border-white rounded-full cursor-sw-resize shadow-md z-20 hover:scale-125 transition-transform"
                             title="Drag corner to resize image"
                           />
+                          {/* Top-Right Handle */}
                           <div
                             onMouseDown={(e) => handleImageResizeStart(e, img.id, 'ne')}
                             className="absolute top-0 right-0 translate-x-1/2 -translate-y-1/2 w-4 h-4 bg-brand-600 border-2 border-white rounded-full cursor-ne-resize shadow-md z-20 hover:scale-125 transition-transform"
                             title="Drag corner to resize image"
                           />
+                          {/* Top-Left Handle */}
                           <div
                             onMouseDown={(e) => handleImageResizeStart(e, img.id, 'nw')}
                             className="absolute top-0 left-0 -translate-x-1/2 -translate-y-1/2 w-4 h-4 bg-brand-600 border-2 border-white rounded-full cursor-nw-resize shadow-md z-20 hover:scale-125 transition-transform"
@@ -1582,457 +569,145 @@ export const PdfEditor: React.FC = () => {
             </div>
 
             <p className="text-[11px] text-slate-500 text-center flex items-center justify-center gap-1.5">
-              <MousePointer size={13} className="text-brand-500" />
-              <span>Use <b>Move Mode</b> to drag/resize text or images. Use <b>Edit Text</b> to replace text, or <b>Crop Box</b> to erase content.</span>
+              <Move size={13} className="text-brand-500" />
+              <span>Click and drag with mouse to move image anywhere on the PDF page. Drag corner handles to scale!</span>
             </p>
           </div>
 
-          {/* Configuration & Controls Sidebar */}
+          {/* CONTROLS & SIDEBAR */}
           <div className="space-y-6">
-            
-            {/* Sidebar Tabs */}
             <div className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-dark-card shadow-sm space-y-6">
               
-              {/* Tab Navigation */}
-              <div className="flex border-b border-slate-200 dark:border-slate-800 pb-3 gap-2">
-                <button
-                  onClick={() => setActiveTab('text')}
-                  className={`flex-1 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all ${
-                    activeTab === 'text'
-                      ? 'bg-brand-500 text-white shadow-md shadow-brand-500/20'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-                  }`}
-                >
-                  <Type size={14} />
-                  <span>{selectedTextId ? 'Edit Text' : 'Add Text'}</span>
-                </button>
+              <h3 className="font-bold text-sm text-slate-800 dark:text-slate-100 flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
+                <ImageIcon size={16} className="text-brand-500" />
+                <span>Image Placement & Adjustments</span>
+              </h3>
 
-                <button
-                  onClick={() => setActiveTab('image')}
-                  className={`flex-1 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all ${
-                    activeTab === 'image'
-                      ? 'bg-brand-500 text-white shadow-md shadow-brand-500/20'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-                  }`}
-                >
-                  <ImageIcon size={14} />
-                  <span>Add Image</span>
-                </button>
-
-                <button
-                  onClick={() => setActiveTab('crop')}
-                  className={`flex-1 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all ${
-                    activeTab === 'crop'
-                      ? 'bg-brand-500 text-white shadow-md shadow-brand-500/20'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-                  }`}
-                >
-                  <Crop size={14} />
-                  <span>Crop / Erase</span>
-                </button>
-
-                <button
-                  onClick={() => setActiveTab('analysis')}
-                  className={`flex-1 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all ${
-                    activeTab === 'analysis'
-                      ? 'bg-brand-500 text-white shadow-md shadow-brand-500/20'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-                  }`}
-                >
-                  <Sparkles size={14} />
-                  <span>Font Info</span>
-                </button>
+              {/* Upload Dropzone */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Upload Image / Stamp / Signature / Logo
+                </label>
+                <input
+                  type="file"
+                  accept="image/png, image/jpeg"
+                  multiple
+                  onChange={handleImagesUpload}
+                  className="w-full text-xs text-slate-500 file:mr-3 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-brand-500/10 file:text-brand-600 hover:file:bg-brand-500/20 cursor-pointer"
+                />
               </div>
 
-              {/* TAB 1: ADD & EDIT TEXT */}
-              {activeTab === 'text' && (
-                <div className="space-y-4 text-xs font-semibold">
-                  
-                  {selectedTextId && (
-                    <div className="flex justify-between items-center bg-brand-500/10 p-2.5 rounded-lg text-brand-600 font-bold text-[11px]">
-                      <span>Editing Selected Text Overlay</span>
-                      <button
-                        onClick={resetTextForm}
-                        className="text-xs hover:underline text-slate-500"
-                      >
-                        + Create New Text
-                      </button>
-                    </div>
-                  )}
-
-                  <div>
-                    <label className="block text-slate-700 dark:text-slate-300 mb-1">Text Content</label>
-                    <textarea
-                      rows={2}
-                      value={newText}
-                      onChange={(e) => setNewText(e.target.value)}
-                      placeholder="Type text to overlay..."
-                      className="w-full p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 text-xs focus:ring-2 focus:ring-brand-500 outline-none"
-                    />
+              {/* Selected Image Fine-Tuning */}
+              {selectedOverlay ? (
+                <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-4 text-xs font-semibold">
+                  <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-2">
+                    <span className="font-bold text-brand-600 truncate max-w-[180px]">
+                      📷 {selectedOverlay.fileName}
+                    </span>
+                    <button
+                      onClick={() => handleRemoveImage(selectedOverlay.id)}
+                      className="text-rose-500 hover:text-rose-700 font-bold text-[11px] flex items-center gap-1"
+                    >
+                      <Trash2 size={12} />
+                      <span>Remove</span>
+                    </button>
                   </div>
 
-                  {/* Font Family */}
+                  {/* Target Page Selection */}
                   <div>
-                    <label className="block text-slate-700 dark:text-slate-300 mb-1">Font Family</label>
+                    <label className="block text-slate-700 dark:text-slate-300 mb-1">Apply Image To</label>
                     <select
-                      value={fontFamily}
-                      onChange={(e) => setFontFamily(e.target.value as StandardFontKey)}
-                      className="w-full p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 text-xs outline-none"
+                      value={selectedOverlay.pageNumber}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setImageOverlays((prev) =>
+                          prev.map((i) => (i.id === selectedOverlay.id ? { ...i, pageNumber: val } : i))
+                        );
+                      }}
+                      className="w-full p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-dark-card text-xs"
                     >
-                      <option value="Helvetica">Helvetica / Arial (Sans-Serif)</option>
-                      <option value="HelveticaBold">Helvetica Bold</option>
-                      <option value="TimesRoman">Times Roman (Serif)</option>
-                      <option value="TimesRomanBold">Times Roman Bold</option>
-                      <option value="Courier">Courier (Monospace)</option>
-                      <option value="CourierBold">Courier Bold</option>
+                      <option value={currentPage}>Current Page (Page {currentPage})</option>
+                      <option value={-1}>All Pages in PDF ({numPages} Pages)</option>
+                      {Array.from({ length: numPages }, (_, idx) => (
+                        <option key={idx + 1} value={idx + 1}>Page {idx + 1}</option>
+                      ))}
                     </select>
                   </div>
 
-                  {/* Size & Color */}
+                  {/* Width & Height Sliders */}
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-slate-700 dark:text-slate-300 mb-1">Font Size (pt)</label>
-                      <input
-                        type="number"
-                        min={6}
-                        max={120}
-                        value={fontSize}
-                        onChange={(e) => setFontSize(Number(e.target.value))}
-                        className="w-full p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 text-xs outline-none"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-slate-700 dark:text-slate-300 mb-1">Text Color</label>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="color"
-                          value={textColor}
-                          onChange={(e) => setTextColor(e.target.value)}
-                          className="w-9 h-9 p-0.5 rounded border border-slate-200 dark:border-slate-700 cursor-pointer bg-transparent"
-                        />
-                        <span className="text-[11px] font-mono text-slate-500 uppercase">{textColor}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Cover Original Text / Whiteout Option */}
-                  <label className="flex items-center gap-2 p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={bgWhiteout}
-                      onChange={(e) => setBgWhiteout(e.target.checked)}
-                      className="rounded text-brand-600 focus:ring-brand-500 h-4 w-4"
-                    />
-                    <div className="flex flex-col">
-                      <span className="text-slate-800 dark:text-slate-200 font-bold flex items-center gap-1.5">
-                        <Eraser size={13} className="text-brand-500" />
-                        <span>Cover / Whiteout Original PDF Text</span>
-                      </span>
-                      <span className="text-[10px] text-slate-400 font-normal">
-                        Erases the underlying PDF text before drawing edited text on top.
-                      </span>
-                    </div>
-                  </label>
-
-                  {/* Position Coordinates */}
-                  <div className="p-3 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
-                    <div className="flex justify-between items-center text-[11px]">
-                      <span className="text-slate-500 font-bold">Target Position (Page {currentPage})</span>
-                      <span className="text-brand-600 font-mono">X: {clickX}%, Y: {clickY}%</span>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <span className="text-[10px] text-slate-400">X Position (%)</span>
-                        <input
-                          type="range"
-                          min={0}
-                          max={95}
-                          value={clickX}
-                          onChange={(e) => setClickX(Number(e.target.value))}
-                          className="w-full accent-brand-500"
-                        />
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-slate-400">Y Position (%)</span>
-                        <input
-                          type="range"
-                          min={0}
-                          max={95}
-                          value={clickY}
-                          onChange={(e) => setClickY(Number(e.target.value))}
-                          className="w-full accent-brand-500"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={handleSaveTextOverlay}
-                    className="w-full py-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-md shadow-brand-600/15 transition-all"
-                  >
-                    {selectedTextId ? <Check size={14} /> : <Plus size={14} />}
-                    <span>{selectedTextId ? 'Save Text Changes' : 'Insert Text Overlay'}</span>
-                  </button>
-                </div>
-              )}
-
-              {/* TAB 2: ADD & RESIZE IMAGE */}
-              {activeTab === 'image' && (
-                <div className="space-y-4 text-xs font-semibold">
-                  <div>
-                    <label className="block text-slate-700 dark:text-slate-300 mb-1">Upload Image (Stamp / Signature / Logo)</label>
-                    <input
-                      type="file"
-                      accept="image/png, image/jpeg"
-                      onChange={handleImageUpload}
-                      className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-brand-500/10 file:text-brand-600 hover:file:bg-brand-500/20 cursor-pointer"
-                    />
-                  </div>
-
-                  {uploadedImageData && (
-                    <div className="p-3 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3">
-                      <div className="h-24 flex items-center justify-center bg-slate-200 dark:bg-slate-950 rounded-lg p-2 overflow-hidden">
-                        <img src={uploadedImageData} alt="Preview" className="max-h-full max-w-full object-contain" />
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <span className="text-[10px] text-slate-400">Width (% Page): {imgWidthPct}%</span>
-                          <input
-                            type="range"
-                            min={5}
-                            max={80}
-                            value={imgWidthPct}
-                            onChange={(e) => {
-                              const val = Number(e.target.value);
-                              setImgWidthPct(val);
-                              if (selectedImageId) {
-                                setImageOverlays((prev) =>
-                                  prev.map((img) => (img.id === selectedImageId ? { ...img, widthPct: val } : img))
-                                );
-                              }
-                            }}
-                            className="w-full accent-brand-500"
-                          />
-                        </div>
-
-                        <div>
-                          <span className="text-[10px] text-slate-400">Height (% Page): {imgHeightPct}%</span>
-                          <input
-                            type="range"
-                            min={5}
-                            max={80}
-                            value={imgHeightPct}
-                            onChange={(e) => {
-                              const val = Number(e.target.value);
-                              setImgHeightPct(val);
-                              if (selectedImageId) {
-                                setImageOverlays((prev) =>
-                                  prev.map((img) => (img.id === selectedImageId ? { ...img, heightPct: val } : img))
-                                );
-                              }
-                            }}
-                            className="w-full accent-brand-500"
-                          />
-                        </div>
-                      </div>
-
-                      <p className="text-[10px] text-brand-600 font-medium text-center flex items-center justify-center gap-1">
-                        <Move size={12} />
-                        <span>Drag with mouse to move image anywhere on PDF!</span>
-                      </p>
-                    </div>
-                  )}
-
-                  <button
-                    disabled={!uploadedImageData}
-                    onClick={handleAddImageOverlay}
-                    className="w-full py-3 rounded-xl bg-brand-600 hover:bg-brand-700 disabled:opacity-40 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-md shadow-brand-600/15 transition-all"
-                  >
-                    <Plus size={14} />
-                    <span>Insert Image Overlay</span>
-                  </button>
-                </div>
-              )}
-
-              {/* TAB 3: CROP & WHITEOUT BOX */}
-              {activeTab === 'crop' && (
-                <div className="space-y-4 text-xs font-semibold">
-                  <h4 className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
-                    <Crop size={14} className="text-amber-500" />
-                    <span>Crop & Erase Box (Whiteout)</span>
-                  </h4>
-
-                  <p className="text-[11px] text-slate-500">
-                    Add a Whiteout Box to cover or erase any unwanted area, text, logo, or header on the PDF page.
-                  </p>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-slate-700 dark:text-slate-300 mb-1">Box Width (%)</label>
+                      <span className="text-[10px] text-slate-400">Width: {selectedOverlay.widthPct}%</span>
                       <input
                         type="range"
                         min={5}
-                        max={90}
-                        value={cropBoxWidthPct}
+                        max={95}
+                        value={selectedOverlay.widthPct}
                         onChange={(e) => {
                           const val = Number(e.target.value);
-                          setCropBoxWidthPct(val);
-                          if (selectedCropId) {
-                            setCropBoxes((prev) =>
-                              prev.map((c) => (c.id === selectedCropId ? { ...c, widthPct: val } : c))
-                            );
-                          }
+                          setImageOverlays((prev) =>
+                            prev.map((i) => (i.id === selectedOverlay.id ? { ...i, widthPct: val } : i))
+                          );
                         }}
-                        className="w-full accent-amber-500"
+                        className="w-full accent-brand-500"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-slate-700 dark:text-slate-300 mb-1">Box Height (%)</label>
+                      <span className="text-[10px] text-slate-400">Height: {selectedOverlay.heightPct}%</span>
                       <input
                         type="range"
-                        min={3}
-                        max={80}
-                        value={cropBoxHeightPct}
+                        min={5}
+                        max={95}
+                        value={selectedOverlay.heightPct}
                         onChange={(e) => {
                           const val = Number(e.target.value);
-                          setCropBoxHeightPct(val);
-                          if (selectedCropId) {
-                            setCropBoxes((prev) =>
-                              prev.map((c) => (c.id === selectedCropId ? { ...c, heightPct: val } : c))
-                            );
-                          }
+                          setImageOverlays((prev) =>
+                            prev.map((i) => (i.id === selectedOverlay.id ? { ...i, heightPct: val } : i))
+                          );
                         }}
-                        className="w-full accent-amber-500"
+                        className="w-full accent-brand-500"
                       />
                     </div>
                   </div>
 
+                  {/* Opacity Slider */}
                   <div>
-                    <label className="block text-slate-700 dark:text-slate-300 mb-1">Erase Box Color</label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="color"
-                        value={cropBoxColor}
-                        onChange={(e) => {
-                          const col = e.target.value;
-                          setCropBoxColor(col);
-                          if (selectedCropId) {
-                            setCropBoxes((prev) =>
-                              prev.map((c) => (c.id === selectedCropId ? { ...c, color: col } : c))
-                            );
-                          }
-                        }}
-                        className="w-8 h-8 p-0.5 rounded border cursor-pointer"
-                      />
-                      <span className="text-slate-500 font-mono text-[11px] uppercase">{cropBoxColor} (Whiteout)</span>
-                    </div>
+                    <span className="text-[10px] text-slate-400">Opacity / Transparency: {Math.round(selectedOverlay.opacity * 100)}%</span>
+                    <input
+                      type="range"
+                      min={0.1}
+                      max={1.0}
+                      step={0.05}
+                      value={selectedOverlay.opacity}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setImageOverlays((prev) =>
+                          prev.map((i) => (i.id === selectedOverlay.id ? { ...i, opacity: val } : i))
+                        );
+                      }}
+                      className="w-full accent-brand-500"
+                    />
                   </div>
-
-                  <button
-                    onClick={handleAddCropBox}
-                    className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow-md shadow-amber-500/20 transition-all"
-                  >
-                    <Plus size={14} />
-                    <span>Add Whiteout Erase Box</span>
-                  </button>
                 </div>
+              ) : (
+                <p className="text-slate-500 text-xs text-center py-4">
+                  Upload an image to place it on the PDF page. Select any image to adjust its dimensions or opacity.
+                </p>
               )}
 
-              {/* TAB 4: FONT ANALYSIS & QUICK REPLACE */}
-              {activeTab === 'analysis' && (
-                <div className="space-y-4 text-xs">
-                  <h4 className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
-                    <Sparkles size={14} className="text-amber-500" />
-                    <span>Analyzed Font & Quick Replace</span>
-                  </h4>
-
-                  {isAnalyzing ? (
-                    <div className="py-6 text-center text-slate-500">
-                      Analyzing PDF text layer at clicked position...
-                    </div>
-                  ) : analyzedFont ? (
-                    <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 space-y-3 text-slate-700 dark:text-slate-200">
-                      <div>
-                        <span className="text-[10px] uppercase tracking-wider text-slate-400 font-bold block">Detected Text Snippet</span>
-                        <p className="font-semibold text-slate-900 dark:text-white bg-white dark:bg-slate-900 p-2 rounded border border-slate-200 dark:border-slate-800 mt-1">
-                          "{analyzedFont.detectedText}"
-                        </p>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2 text-[11px] pt-1">
-                        <div>
-                          <span className="text-slate-400 block">PDF Font Name</span>
-                          <span className="font-bold truncate block">{analyzedFont.fontName}</span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 block">Font Size</span>
-                          <span className="font-bold block">{analyzedFont.fontSize} pt</span>
-                        </div>
-                      </div>
-
-                      <div className="pt-2 border-t border-amber-500/20">
-                        <span className="text-slate-400 text-[10px] block">Suggested Font Match</span>
-                        <span className="font-bold text-brand-600 dark:text-brand-400">{analyzedFont.suggestedFontKey}</span>
-                      </div>
-
-                      <button
-                        onClick={handleReplaceDetectedText}
-                        className="w-full py-2.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow transition-all"
-                      >
-                        <Edit3 size={13} />
-                        <span>Edit & Replace This Text Snippet</span>
-                      </button>
-                    </div>
-                  ) : (
-                    <p className="text-slate-500 text-center py-6">
-                      Click anywhere on the PDF page to inspect, edit, and replace existing PDF text snippets.
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {/* Added Overlays List */}
-              {(textOverlays.length > 0 || imageOverlays.length > 0 || cropBoxes.length > 0) && (
-                <div className="border-t border-slate-100 dark:border-slate-800 pt-4 space-y-2">
+              {/* List of Uploaded Images */}
+              {imageOverlays.length > 0 && (
+                <div className="space-y-2 border-t border-slate-100 dark:border-slate-800 pt-4">
                   <h4 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                    Added Overlays ({textOverlays.length + imageOverlays.length + cropBoxes.length})
+                    Added Images ({imageOverlays.length})
                   </h4>
 
                   <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1">
-                    {textOverlays.map((t) => (
-                      <div
-                        key={t.id}
-                        onClick={() => openOverlayModalEdit(t)}
-                        className={`flex justify-between items-center p-2 rounded-lg border text-[11px] cursor-pointer transition-all ${
-                          selectedTextId === t.id
-                            ? 'bg-brand-500/10 border-brand-500 text-brand-600 font-bold'
-                            : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100'
-                        }`}
-                      >
-                        <div className="truncate flex-1 pr-2">
-                          <span className="font-bold">Pg {t.pageNumber}:</span>{" "}
-                          <span>{t.text}</span>
-                        </div>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleRemoveText(t.id);
-                          }}
-                          className="text-rose-500 hover:text-rose-700 p-1"
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      </div>
-                    ))}
-
                     {imageOverlays.map((img) => (
                       <div
                         key={img.id}
-                        onClick={() => selectImageOverlay(img)}
+                        onClick={() => setSelectedImageId(img.id)}
                         className={`flex justify-between items-center p-2 rounded-lg border text-[11px] cursor-pointer transition-all ${
                           selectedImageId === img.id
                             ? 'bg-brand-500/10 border-brand-500 text-brand-600 font-bold'
@@ -2040,8 +715,10 @@ export const PdfEditor: React.FC = () => {
                         }`}
                       >
                         <div className="truncate flex-1 pr-2">
-                          <span className="font-bold">Pg {img.pageNumber}:</span>{" "}
-                          <span>Image Overlay ({img.widthPct}% x {img.heightPct}%)</span>
+                          <span>{img.fileName}</span>{" "}
+                          <span className="text-[10px] text-slate-400 font-normal">
+                            ({img.pageNumber === -1 ? 'All Pages' : `Pg ${img.pageNumber}`})
+                          </span>
                         </div>
                         <button
                           onClick={(e) => {
@@ -2054,50 +731,23 @@ export const PdfEditor: React.FC = () => {
                         </button>
                       </div>
                     ))}
-
-                    {cropBoxes.map((cb) => (
-                      <div
-                        key={cb.id}
-                        onClick={() => selectCropOverlay(cb)}
-                        className={`flex justify-between items-center p-2 rounded-lg border text-[11px] cursor-pointer transition-all ${
-                          selectedCropId === cb.id
-                            ? 'bg-amber-500/10 border-amber-500 text-amber-700 font-bold'
-                            : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100'
-                        }`}
-                      >
-                        <div className="truncate flex-1 pr-2">
-                          <span className="font-bold">Pg {cb.pageNumber}:</span>{" "}
-                          <span>Whiteout Crop Box ({cb.widthPct}% x {cb.heightPct}%)</span>
-                        </div>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleRemoveCropBox(cb.id);
-                          }}
-                          className="text-rose-500 hover:text-rose-700 p-1"
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      </div>
-                    ))}
                   </div>
                 </div>
               )}
 
-              {/* Action Button: Export PDF */}
+              {/* Action Button: Export & Download */}
               <div className="pt-2">
                 <button
                   onClick={handleExportPdf}
-                  disabled={isProcessing}
+                  disabled={isProcessing || imageOverlays.length === 0}
                   className="w-full py-3.5 rounded-xl bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-brand-600/20 transition-all hover:scale-[1.02]"
                 >
                   <Download size={14} />
-                  <span>Export & Download Edited PDF</span>
+                  <span>Download PDF with Image</span>
                 </button>
               </div>
 
             </div>
-
           </div>
 
         </div>
