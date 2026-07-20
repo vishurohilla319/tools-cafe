@@ -17,7 +17,8 @@ import {
   MousePointer,
   Edit3,
   Check,
-  Eraser
+  Eraser,
+  Move
 } from 'lucide-react';
 import FileUpload from '../../components/shared/FileUpload';
 import ToolHeader from '../../components/shared/ToolHeader';
@@ -168,6 +169,7 @@ export const PdfEditor: React.FC = () => {
   // Load selected text overlay into form for editing
   const loadTextOverlayToForm = (overlay: TextOverlay) => {
     setSelectedTextId(overlay.id);
+    setSelectedImageId(null);
     setNewText(overlay.text);
     setFontFamily(overlay.fontFamily);
     setFontSize(overlay.fontSize);
@@ -176,6 +178,17 @@ export const PdfEditor: React.FC = () => {
     setClickY(overlay.yPct);
     setBgWhiteout(overlay.bgWhiteout ?? true);
     setActiveTab('text');
+  };
+
+  // Select image overlay
+  const selectImageOverlay = (img: ImageOverlay) => {
+    setSelectedImageId(img.id);
+    setSelectedTextId(null);
+    setImgWidthPct(img.widthPct);
+    setImgHeightPct(img.heightPct);
+    setClickX(img.xPct);
+    setClickY(img.yPct);
+    setActiveTab('image');
   };
 
   // Reset text form
@@ -201,6 +214,17 @@ export const PdfEditor: React.FC = () => {
 
     setClickX(xPct);
     setClickY(yPct);
+
+    // Update position of selected overlay if any
+    if (selectedImageId) {
+      setImageOverlays((prev) =>
+        prev.map((img) => (img.id === selectedImageId ? { ...img, xPct, yPct } : img))
+      );
+    } else if (selectedTextId) {
+      setTextOverlays((prev) =>
+        prev.map((t) => (t.id === selectedTextId ? { ...t, xPct, yPct } : t))
+      );
+    }
 
     // Perform font analysis at clicked coordinate
     setIsAnalyzing(true);
@@ -273,6 +297,89 @@ export const PdfEditor: React.FC = () => {
     } finally {
       setIsAnalyzing(false);
     }
+  };
+
+  // Handle Corner Drag Resize for Image Overlays
+  const handleImageResizeStart = (
+    e: React.MouseEvent,
+    imgId: string,
+    corner: 'se' | 'sw' | 'ne' | 'nw'
+  ) => {
+    e.stopPropagation();
+    e.preventDefault();
+
+    if (!canvasRef.current) return;
+    const canvasRect = canvasRef.current.getBoundingClientRect();
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+
+    const img = imageOverlays.find((i) => i.id === imgId);
+    if (!img) return;
+
+    const startW = img.widthPct;
+    const startH = img.heightPct;
+    const startXPct = img.xPct;
+    const startYPct = img.yPct;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const dxPx = moveEvent.clientX - startX;
+      const dyPx = moveEvent.clientY - startY;
+
+      const dxPct = (dxPx / canvasRect.width) * 100;
+      const dyPct = (dyPx / canvasRect.height) * 100;
+
+      setImageOverlays((prev) =>
+        prev.map((item) => {
+          if (item.id !== imgId) return item;
+
+          let newW = startW;
+          let newH = startH;
+          let newX = startXPct;
+          let newY = startYPct;
+
+          if (corner === 'se') {
+            newW = Math.max(5, Math.min(90, startW + dxPct));
+            newH = Math.max(5, Math.min(90, startH + dyPct));
+          } else if (corner === 'sw') {
+            newW = Math.max(5, Math.min(90, startW - dxPct));
+            newH = Math.max(5, Math.min(90, startH + dyPct));
+            newX = Math.max(0, Math.min(95, startXPct + dxPct));
+          } else if (corner === 'ne') {
+            newW = Math.max(5, Math.min(90, startW + dxPct));
+            newH = Math.max(5, Math.min(90, startH - dyPct));
+            newY = Math.max(0, Math.min(95, startYPct + dyPct));
+          } else if (corner === 'nw') {
+            newW = Math.max(5, Math.min(90, startW - dxPct));
+            newH = Math.max(5, Math.min(90, startH - dyPct));
+            newX = Math.max(0, Math.min(95, startXPct + dxPct));
+            newY = Math.max(0, Math.min(95, startYPct + dyPct));
+          }
+
+          const roundedW = Math.round(newW);
+          const roundedH = Math.round(newH);
+
+          setImgWidthPct(roundedW);
+          setImgHeightPct(roundedH);
+
+          return {
+            ...item,
+            widthPct: roundedW,
+            heightPct: roundedH,
+            xPct: Math.round(newX),
+            yPct: Math.round(newY)
+          };
+        })
+      );
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
   };
 
   // Replace Detected Original PDF Text
@@ -643,7 +750,7 @@ export const PdfEditor: React.FC = () => {
                     </div>
                   ))}
 
-                {/* Render Image Overlays for Current Page */}
+                {/* Render Image Overlays with Interactive Corner Drag Handles */}
                 {imageOverlays
                   .filter((img) => img.pageNumber === currentPage)
                   .map((img) => (
@@ -651,8 +758,7 @@ export const PdfEditor: React.FC = () => {
                       key={img.id}
                       onClick={(e) => {
                         e.stopPropagation();
-                        setSelectedImageId(img.id);
-                        setActiveTab('image');
+                        selectImageOverlay(img);
                       }}
                       style={{
                         left: `${img.xPct}%`,
@@ -660,27 +766,59 @@ export const PdfEditor: React.FC = () => {
                         width: `${img.widthPct}%`,
                         height: `${img.heightPct}%`
                       }}
-                      className={`absolute z-10 p-0.5 rounded border border-dashed transition-all cursor-pointer hover:border-brand-500 group ${
+                      className={`absolute z-10 p-0.5 rounded border border-dashed transition-all cursor-pointer group ${
                         selectedImageId === img.id
-                          ? 'border-brand-600 ring-2 ring-brand-500/40'
-                          : 'border-slate-400'
+                          ? 'border-brand-600 ring-2 ring-brand-500/50'
+                          : 'border-slate-400 hover:border-brand-500'
                       }`}
                     >
                       <img
                         src={img.dataUrl}
                         alt="Overlay"
-                        className="w-full h-full object-contain block"
+                        className="w-full h-full object-contain block pointer-events-none"
                       />
+
+                      {/* Remove Button */}
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           handleRemoveImage(img.id);
                         }}
-                        className="absolute -top-2 -right-2 bg-rose-600 text-white rounded-full w-4 h-4 text-[10px] flex items-center justify-center font-bold shadow"
+                        className="absolute -top-2 -right-2 bg-rose-600 text-white rounded-full w-4 h-4 text-[10px] flex items-center justify-center font-bold shadow z-20"
                         title="Delete Image Overlay"
                       >
                         ×
                       </button>
+
+                      {/* Interactive Corner Resize Handles */}
+                      {selectedImageId === img.id && (
+                        <>
+                          {/* Bottom-Right Handle */}
+                          <div
+                            onMouseDown={(e) => handleImageResizeStart(e, img.id, 'se')}
+                            className="absolute bottom-0 right-0 translate-x-1/2 translate-y-1/2 w-4 h-4 bg-brand-600 border-2 border-white rounded-full cursor-se-resize shadow-md z-20 hover:scale-125 transition-transform"
+                            title="Drag corner to resize image"
+                          />
+                          {/* Bottom-Left Handle */}
+                          <div
+                            onMouseDown={(e) => handleImageResizeStart(e, img.id, 'sw')}
+                            className="absolute bottom-0 left-0 -translate-x-1/2 translate-y-1/2 w-4 h-4 bg-brand-600 border-2 border-white rounded-full cursor-sw-resize shadow-md z-20 hover:scale-125 transition-transform"
+                            title="Drag corner to resize image"
+                          />
+                          {/* Top-Right Handle */}
+                          <div
+                            onMouseDown={(e) => handleImageResizeStart(e, img.id, 'ne')}
+                            className="absolute top-0 right-0 translate-x-1/2 -translate-y-1/2 w-4 h-4 bg-brand-600 border-2 border-white rounded-full cursor-ne-resize shadow-md z-20 hover:scale-125 transition-transform"
+                            title="Drag corner to resize image"
+                          />
+                          {/* Top-Left Handle */}
+                          <div
+                            onMouseDown={(e) => handleImageResizeStart(e, img.id, 'nw')}
+                            className="absolute top-0 left-0 -translate-x-1/2 -translate-y-1/2 w-4 h-4 bg-brand-600 border-2 border-white rounded-full cursor-nw-resize shadow-md z-20 hover:scale-125 transition-transform"
+                            title="Drag corner to resize image"
+                          />
+                        </>
+                      )}
                     </div>
                   ))}
               </div>
@@ -688,7 +826,7 @@ export const PdfEditor: React.FC = () => {
 
             <p className="text-[11px] text-slate-500 text-center flex items-center justify-center gap-1.5">
               <MousePointer size={13} className="text-brand-500" />
-              <span>Click anywhere on the PDF page above to analyze existing text/fonts and set target text edit placement.</span>
+              <span>Click anywhere on the PDF page to analyze text, set coordinates, or drag image corner handles to resize images!</span>
             </p>
           </div>
 
@@ -871,7 +1009,7 @@ export const PdfEditor: React.FC = () => {
                 </div>
               )}
 
-              {/* TAB 2: ADD IMAGE */}
+              {/* TAB 2: ADD & RESIZE IMAGE */}
               {activeTab === 'image' && (
                 <div className="space-y-4 text-xs font-semibold">
                   <div>
@@ -892,29 +1030,49 @@ export const PdfEditor: React.FC = () => {
 
                       <div className="grid grid-cols-2 gap-2">
                         <div>
-                          <span className="text-[10px] text-slate-400">Width (% Page)</span>
+                          <span className="text-[10px] text-slate-400">Width (% Page): {imgWidthPct}%</span>
                           <input
                             type="range"
                             min={5}
                             max={80}
                             value={imgWidthPct}
-                            onChange={(e) => setImgWidthPct(Number(e.target.value))}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              setImgWidthPct(val);
+                              if (selectedImageId) {
+                                setImageOverlays((prev) =>
+                                  prev.map((img) => (img.id === selectedImageId ? { ...img, widthPct: val } : img))
+                                );
+                              }
+                            }}
                             className="w-full accent-brand-500"
                           />
                         </div>
 
                         <div>
-                          <span className="text-[10px] text-slate-400">Height (% Page)</span>
+                          <span className="text-[10px] text-slate-400">Height (% Page): {imgHeightPct}%</span>
                           <input
                             type="range"
                             min={5}
                             max={80}
                             value={imgHeightPct}
-                            onChange={(e) => setImgHeightPct(Number(e.target.value))}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              setImgHeightPct(val);
+                              if (selectedImageId) {
+                                setImageOverlays((prev) =>
+                                  prev.map((img) => (img.id === selectedImageId ? { ...img, heightPct: val } : img))
+                                );
+                              }
+                            }}
                             className="w-full accent-brand-500"
                           />
                         </div>
                       </div>
+
+                      <p className="text-[10px] text-brand-600 font-medium text-center">
+                        💡 Tip: You can also drag the blue corner handles on the PDF canvas to resize your image visually!
+                      </p>
                     </div>
                   )}
 
@@ -1019,14 +1177,22 @@ export const PdfEditor: React.FC = () => {
                     {imageOverlays.map((img) => (
                       <div
                         key={img.id}
-                        className="flex justify-between items-center p-2 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px]"
+                        onClick={() => selectImageOverlay(img)}
+                        className={`flex justify-between items-center p-2 rounded-lg border text-[11px] cursor-pointer transition-all ${
+                          selectedImageId === img.id
+                            ? 'bg-brand-500/10 border-brand-500 text-brand-600 font-bold'
+                            : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100'
+                        }`}
                       >
                         <div className="truncate flex-1 pr-2">
-                          <span className="font-bold text-slate-700 dark:text-slate-200">Pg {img.pageNumber}:</span>{" "}
-                          <span className="text-slate-500">Image Overlay</span>
+                          <span className="font-bold">Pg {img.pageNumber}:</span>{" "}
+                          <span>Image Overlay ({img.widthPct}% x {img.heightPct}%)</span>
                         </div>
                         <button
-                          onClick={() => handleRemoveImage(img.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRemoveImage(img.id);
+                          }}
                           className="text-rose-500 hover:text-rose-700 p-1"
                         >
                           <Trash2 size={12} />
