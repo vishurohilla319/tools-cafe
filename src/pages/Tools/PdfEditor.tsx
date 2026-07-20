@@ -18,7 +18,9 @@ import {
   Edit3,
   Check,
   Eraser,
-  Move
+  Move,
+  X,
+  FileText
 } from 'lucide-react';
 import FileUpload from '../../components/shared/FileUpload';
 import ToolHeader from '../../components/shared/ToolHeader';
@@ -87,7 +89,19 @@ export const PdfEditor: React.FC = () => {
   const [analyzedFont, setAnalyzedFont] = useState<AnalyzedFontInfo | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
 
-  // Add/Edit Text Form State
+  // Direct Text Edit Modal / Popover state
+  const [isEditModalOpen, setIsEditModalOpen] = useState<boolean>(false);
+  const [modalOriginalText, setModalOriginalText] = useState<string>('');
+  const [modalNewText, setModalNewText] = useState<string>('');
+  const [modalFontFamily, setModalFontFamily] = useState<StandardFontKey>('Helvetica');
+  const [modalFontSize, setModalFontSize] = useState<number>(14);
+  const [modalTextColor, setModalTextColor] = useState<string>('#000000');
+  const [modalWhiteout, setModalWhiteout] = useState<boolean>(true);
+  const [modalXPct, setModalXPct] = useState<number>(10);
+  const [modalYPct, setModalYPct] = useState<number>(10);
+  const [editingOverlayId, setEditingOverlayId] = useState<string | null>(null);
+
+  // Add/Edit Text Form State (Sidebar)
   const [newText, setNewText] = useState<string>('Sample Text');
   const [fontFamily, setFontFamily] = useState<StandardFontKey>('Helvetica');
   const [fontSize, setFontSize] = useState<number>(14);
@@ -119,6 +133,7 @@ export const PdfEditor: React.FC = () => {
     setAnalyzedFont(null);
     setSelectedTextId(null);
     setSelectedImageId(null);
+    setIsEditModalOpen(false);
     setCurrentPage(1);
 
     const buffer = await file.arrayBuffer();
@@ -180,6 +195,20 @@ export const PdfEditor: React.FC = () => {
     setActiveTab('text');
   };
 
+  // Open Direct Text Edit Modal for existing text overlay
+  const openOverlayModalEdit = (overlay: TextOverlay) => {
+    setEditingOverlayId(overlay.id);
+    setModalOriginalText(overlay.text);
+    setModalNewText(overlay.text);
+    setModalFontFamily(overlay.fontFamily);
+    setModalFontSize(overlay.fontSize);
+    setModalTextColor(overlay.color);
+    setModalWhiteout(overlay.bgWhiteout ?? true);
+    setModalXPct(overlay.xPct);
+    setModalYPct(overlay.yPct);
+    setIsEditModalOpen(true);
+  };
+
   // Select image overlay
   const selectImageOverlay = (img: ImageOverlay) => {
     setSelectedImageId(img.id);
@@ -201,7 +230,7 @@ export const PdfEditor: React.FC = () => {
     setBgWhiteout(true);
   };
 
-  // Handle Canvas Click for Analysis and Coordinate setting
+  // Handle Canvas Click for Analysis and opening Direct Text Edit Popover
   const handleCanvasClick = async (e: React.MouseEvent<HTMLDivElement>) => {
     if (!canvasRef.current || !pdfDocRef.current) return;
 
@@ -252,7 +281,7 @@ export const PdfEditor: React.FC = () => {
         }
       }
 
-      if (closestItem) {
+      if (closestItem && closestItem.str.trim()) {
         const fontName: string = closestItem.fontName || 'Unknown';
         const transformScale = Math.hypot(closestItem.transform[0], closestItem.transform[1]);
         const detectedSize = Math.round(transformScale) || 12;
@@ -276,12 +305,17 @@ export const PdfEditor: React.FC = () => {
           yPct
         });
 
-        // Pre-fill form values to match analyzed text font
-        setFontFamily(suggestedFont);
-        setFontSize(detectedSize);
-        if (closestItem.str.trim()) {
-          setNewText(closestItem.str);
-        }
+        // Open Direct Text Editing Popover Modal!
+        setEditingOverlayId(null);
+        setModalOriginalText(closestItem.str);
+        setModalNewText(closestItem.str);
+        setModalFontFamily(suggestedFont);
+        setModalFontSize(detectedSize);
+        setModalTextColor('#000000');
+        setModalWhiteout(true);
+        setModalXPct(xPct);
+        setModalYPct(yPct);
+        setIsEditModalOpen(true);
       } else {
         setAnalyzedFont({
           detectedText: '(No specific text detected near click point)',
@@ -297,6 +331,48 @@ export const PdfEditor: React.FC = () => {
     } finally {
       setIsAnalyzing(false);
     }
+  };
+
+  // Save Direct Text Edit Modal
+  const handleApplyModalTextEdit = () => {
+    if (!modalNewText.trim()) return;
+
+    if (editingOverlayId) {
+      // Update existing overlay
+      setTextOverlays((prev) =>
+        prev.map((t) =>
+          t.id === editingOverlayId
+            ? {
+                ...t,
+                text: modalNewText,
+                fontFamily: modalFontFamily,
+                fontSize: modalFontSize,
+                color: modalTextColor,
+                xPct: modalXPct,
+                yPct: modalYPct,
+                bgWhiteout: modalWhiteout
+              }
+            : t
+        )
+      );
+    } else {
+      // Add new replacement text overlay
+      const overlay: TextOverlay = {
+        id: 'text-' + Date.now(),
+        pageNumber: currentPage,
+        text: modalNewText,
+        fontFamily: modalFontFamily,
+        fontSize: modalFontSize,
+        color: modalTextColor,
+        xPct: modalXPct,
+        yPct: modalYPct,
+        bgWhiteout: modalWhiteout
+      };
+      setTextOverlays((prev) => [...prev, overlay]);
+      setSelectedTextId(overlay.id);
+    }
+
+    setIsEditModalOpen(false);
   };
 
   // Handle Drag-to-Move for Image Overlays
@@ -481,17 +557,19 @@ export const PdfEditor: React.FC = () => {
   // Replace Detected Original PDF Text
   const handleReplaceDetectedText = () => {
     if (!analyzedFont) return;
-    setNewText(analyzedFont.detectedText);
-    setFontFamily(analyzedFont.suggestedFontKey);
-    setFontSize(analyzedFont.fontSize);
-    setClickX(analyzedFont.xPct);
-    setClickY(analyzedFont.yPct);
-    setBgWhiteout(true);
-    setSelectedTextId(null);
-    setActiveTab('text');
+    setEditingOverlayId(null);
+    setModalOriginalText(analyzedFont.detectedText);
+    setModalNewText(analyzedFont.detectedText);
+    setModalFontFamily(analyzedFont.suggestedFontKey);
+    setModalFontSize(analyzedFont.fontSize);
+    setModalTextColor('#000000');
+    setModalWhiteout(true);
+    setModalXPct(analyzedFont.xPct);
+    setModalYPct(analyzedFont.yPct);
+    setIsEditModalOpen(true);
   };
 
-  // Add or Save Text Overlay
+  // Add or Save Text Overlay from Sidebar
   const handleSaveTextOverlay = () => {
     if (!newText.trim()) return;
 
@@ -725,7 +803,118 @@ export const PdfEditor: React.FC = () => {
           />
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 relative">
+
+          {/* DIRECT INLINE PDF TEXT EDIT MODAL POPUP */}
+          {isEditModalOpen && (
+            <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+              <div className="bg-white dark:bg-dark-card border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4 animate-in fade-in zoom-in duration-150">
+                <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3">
+                  <h3 className="font-bold text-sm text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                    <Edit3 size={16} className="text-brand-500" />
+                    <span>Edit PDF Text Snippet</span>
+                  </h3>
+                  <button
+                    onClick={() => setIsEditModalOpen(false)}
+                    className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+
+                {modalOriginalText && (
+                  <div className="bg-slate-50 dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 text-xs">
+                    <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">Original Text in PDF:</span>
+                    <p className="font-semibold text-slate-700 dark:text-slate-300 mt-0.5 font-mono">
+                      "{modalOriginalText}"
+                    </p>
+                  </div>
+                )}
+
+                <div className="space-y-3 text-xs font-semibold">
+                  <div>
+                    <label className="block text-slate-700 dark:text-slate-300 mb-1">Replacement Text</label>
+                    <textarea
+                      rows={2}
+                      value={modalNewText}
+                      onChange={(e) => setModalNewText(e.target.value)}
+                      className="w-full p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-xs focus:ring-2 focus:ring-brand-500 outline-none"
+                      placeholder="Enter new text to replace..."
+                      autoFocus
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-700 dark:text-slate-300 mb-1">Font Family</label>
+                      <select
+                        value={modalFontFamily}
+                        onChange={(e) => setModalFontFamily(e.target.value as StandardFontKey)}
+                        className="w-full p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 text-xs outline-none"
+                      >
+                        <option value="Helvetica">Helvetica / Arial</option>
+                        <option value="HelveticaBold">Helvetica Bold</option>
+                        <option value="TimesRoman">Times Roman</option>
+                        <option value="TimesRomanBold">Times Roman Bold</option>
+                        <option value="Courier">Courier Mono</option>
+                        <option value="CourierBold">Courier Bold</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-700 dark:text-slate-300 mb-1">Font Size (pt)</label>
+                      <input
+                        type="number"
+                        min={6}
+                        max={120}
+                        value={modalFontSize}
+                        onChange={(e) => setModalFontSize(Number(e.target.value))}
+                        className="w-full p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 text-xs outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-between items-center pt-1">
+                    <div className="flex items-center gap-2">
+                      <label className="text-slate-700 dark:text-slate-300 text-xs">Color:</label>
+                      <input
+                        type="color"
+                        value={modalTextColor}
+                        onChange={(e) => setModalTextColor(e.target.value)}
+                        className="w-7 h-7 p-0.5 rounded border border-slate-200 cursor-pointer"
+                      />
+                    </div>
+
+                    <label className="flex items-center gap-1.5 cursor-pointer text-xs">
+                      <input
+                        type="checkbox"
+                        checked={modalWhiteout}
+                        onChange={(e) => setModalWhiteout(e.target.checked)}
+                        className="rounded text-brand-600 focus:ring-brand-500 h-3.5 w-3.5"
+                      />
+                      <span className="text-slate-700 dark:text-slate-300">Whiteout Old Text</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="flex gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    onClick={() => setIsEditModalOpen(false)}
+                    className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 font-bold text-xs hover:bg-slate-50 dark:hover:bg-slate-900 transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleApplyModalTextEdit}
+                    className="flex-1 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-brand-600/20 transition-all"
+                  >
+                    <Check size={14} />
+                    <span>Apply Text Edit</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           
           {/* Main Interactive Workspace (Canvas & Overlay Preview) */}
           <div className="lg:col-span-2 space-y-4">
@@ -811,7 +1000,7 @@ export const PdfEditor: React.FC = () => {
                       onMouseDown={(e) => handleTextMoveStart(e, t.id)}
                       onClick={(e) => {
                         e.stopPropagation();
-                        loadTextOverlayToForm(t);
+                        openOverlayModalEdit(t);
                       }}
                       style={{
                         left: `${t.xPct}%`,
@@ -834,6 +1023,20 @@ export const PdfEditor: React.FC = () => {
                       }`}
                     >
                       <span>{t.text}</span>
+                      
+                      {/* Edit Badge */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openOverlayModalEdit(t);
+                        }}
+                        className="ml-1.5 text-brand-600 hover:text-brand-800 font-bold text-[10px] inline-flex items-center"
+                        title="Click to edit text"
+                      >
+                        <Edit3 size={11} />
+                      </button>
+
+                      {/* Remove Button */}
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -932,7 +1135,7 @@ export const PdfEditor: React.FC = () => {
 
             <p className="text-[11px] text-slate-500 text-center flex items-center justify-center gap-1.5">
               <MousePointer size={13} className="text-brand-500" />
-              <span>Click & drag any image or text to move it around. Use the corner handles to resize images!</span>
+              <span>Click any text in the PDF to open instant direct text edit modal. Drag images or text to move anywhere!</span>
             </p>
           </div>
 
@@ -1258,7 +1461,7 @@ export const PdfEditor: React.FC = () => {
                     {textOverlays.map((t) => (
                       <div
                         key={t.id}
-                        onClick={() => loadTextOverlayToForm(t)}
+                        onClick={() => openOverlayModalEdit(t)}
                         className={`flex justify-between items-center p-2 rounded-lg border text-[11px] cursor-pointer transition-all ${
                           selectedTextId === t.id
                             ? 'bg-brand-500/10 border-brand-500 text-brand-600 font-bold'
