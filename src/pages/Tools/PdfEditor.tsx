@@ -14,7 +14,10 @@ import {
   ChevronRight,
   Plus,
   Sparkles,
-  MousePointer
+  MousePointer,
+  Edit3,
+  Check,
+  Eraser
 } from 'lucide-react';
 import FileUpload from '../../components/shared/FileUpload';
 import ToolHeader from '../../components/shared/ToolHeader';
@@ -35,6 +38,7 @@ export interface TextOverlay {
   color: string; // Hex color string
   xPct: number; // 0 to 100 (% of page width)
   yPct: number; // 0 to 100 (% of page height from top)
+  bgWhiteout?: boolean; // Cover original text under this box with white background
 }
 
 export interface ImageOverlay {
@@ -82,11 +86,12 @@ export const PdfEditor: React.FC = () => {
   const [analyzedFont, setAnalyzedFont] = useState<AnalyzedFontInfo | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
 
-  // Add Text Form State
+  // Add/Edit Text Form State
   const [newText, setNewText] = useState<string>('Sample Text');
   const [fontFamily, setFontFamily] = useState<StandardFontKey>('Helvetica');
   const [fontSize, setFontSize] = useState<number>(14);
   const [textColor, setTextColor] = useState<string>('#000000');
+  const [bgWhiteout, setBgWhiteout] = useState<boolean>(true);
   const [clickX, setClickX] = useState<number>(10); // % default
   const [clickY, setClickY] = useState<number>(10); // % default
 
@@ -111,6 +116,8 @@ export const PdfEditor: React.FC = () => {
     setTextOverlays([]);
     setImageOverlays([]);
     setAnalyzedFont(null);
+    setSelectedTextId(null);
+    setSelectedImageId(null);
     setCurrentPage(1);
 
     const buffer = await file.arrayBuffer();
@@ -158,6 +165,29 @@ export const PdfEditor: React.FC = () => {
     }
   }, [currentPage, renderScale, pdfDocRef.current]);
 
+  // Load selected text overlay into form for editing
+  const loadTextOverlayToForm = (overlay: TextOverlay) => {
+    setSelectedTextId(overlay.id);
+    setNewText(overlay.text);
+    setFontFamily(overlay.fontFamily);
+    setFontSize(overlay.fontSize);
+    setTextColor(overlay.color);
+    setClickX(overlay.xPct);
+    setClickY(overlay.yPct);
+    setBgWhiteout(overlay.bgWhiteout ?? true);
+    setActiveTab('text');
+  };
+
+  // Reset text form
+  const resetTextForm = () => {
+    setSelectedTextId(null);
+    setNewText('Sample Text');
+    setFontFamily('Helvetica');
+    setFontSize(14);
+    setTextColor('#000000');
+    setBgWhiteout(true);
+  };
+
   // Handle Canvas Click for Analysis and Coordinate setting
   const handleCanvasClick = async (e: React.MouseEvent<HTMLDivElement>) => {
     if (!canvasRef.current || !pdfDocRef.current) return;
@@ -192,7 +222,7 @@ export const PdfEditor: React.FC = () => {
         const itemY = item.transform[5];
 
         const dist = Math.hypot(pdfX - itemX, pdfY - itemY);
-        if (dist < minDistance && dist < 100) {
+        if (dist < minDistance && dist < 120) {
           minDistance = dist;
           closestItem = item;
         }
@@ -245,23 +275,57 @@ export const PdfEditor: React.FC = () => {
     }
   };
 
-  // Add Text Overlay
-  const handleAddTextOverlay = () => {
+  // Replace Detected Original PDF Text
+  const handleReplaceDetectedText = () => {
+    if (!analyzedFont) return;
+    setNewText(analyzedFont.detectedText);
+    setFontFamily(analyzedFont.suggestedFontKey);
+    setFontSize(analyzedFont.fontSize);
+    setClickX(analyzedFont.xPct);
+    setClickY(analyzedFont.yPct);
+    setBgWhiteout(true);
+    setSelectedTextId(null);
+    setActiveTab('text');
+  };
+
+  // Add or Save Text Overlay
+  const handleSaveTextOverlay = () => {
     if (!newText.trim()) return;
 
-    const overlay: TextOverlay = {
-      id: 'text-' + Date.now(),
-      pageNumber: currentPage,
-      text: newText,
-      fontFamily,
-      fontSize,
-      color: textColor,
-      xPct: clickX,
-      yPct: clickY
-    };
-
-    setTextOverlays((prev) => [...prev, overlay]);
-    setSelectedTextId(overlay.id);
+    if (selectedTextId) {
+      // Update existing overlay
+      setTextOverlays((prev) =>
+        prev.map((t) =>
+          t.id === selectedTextId
+            ? {
+                ...t,
+                text: newText,
+                fontFamily,
+                fontSize,
+                color: textColor,
+                xPct: clickX,
+                yPct: clickY,
+                bgWhiteout
+              }
+            : t
+        )
+      );
+    } else {
+      // Create new overlay
+      const overlay: TextOverlay = {
+        id: 'text-' + Date.now(),
+        pageNumber: currentPage,
+        text: newText,
+        fontFamily,
+        fontSize,
+        color: textColor,
+        xPct: clickX,
+        yPct: clickY,
+        bgWhiteout
+      };
+      setTextOverlays((prev) => [...prev, overlay]);
+      setSelectedTextId(overlay.id);
+    }
   };
 
   // Image Upload Handler
@@ -354,6 +418,19 @@ export const PdfEditor: React.FC = () => {
         // Calculate PDF point coordinates (pdf-lib origin is bottom-left)
         const pdfX = (textOverlay.xPct / 100) * width;
         const pdfY = height - ((textOverlay.yPct / 100) * height) - textOverlay.fontSize;
+
+        // Draw Whiteout Background rectangle to cover original PDF text if requested
+        if (textOverlay.bgWhiteout) {
+          const textWidth = font.widthOfTextAtSize(textOverlay.text, textOverlay.fontSize);
+          const textHeight = textOverlay.fontSize * 1.25;
+          page.drawRectangle({
+            x: Math.max(0, pdfX - 2),
+            y: Math.max(0, pdfY - 2),
+            width: textWidth + 6,
+            height: textHeight,
+            color: rgb(1, 1, 1) // White rectangle
+          });
+        }
 
         page.drawText(textOverlay.text, {
           x: Math.max(0, pdfX),
@@ -530,8 +607,7 @@ export const PdfEditor: React.FC = () => {
                       key={t.id}
                       onClick={(e) => {
                         e.stopPropagation();
-                        setSelectedTextId(t.id);
-                        setActiveTab('text');
+                        loadTextOverlayToForm(t);
                       }}
                       style={{
                         left: `${t.xPct}%`,
@@ -545,10 +621,12 @@ export const PdfEditor: React.FC = () => {
                           : 'Arial, sans-serif',
                         fontWeight: t.fontFamily.includes('Bold') ? 'bold' : 'normal'
                       }}
-                      className={`absolute z-10 p-1 rounded border border-dashed transition-all hover:border-brand-500 ${
+                      className={`absolute z-10 p-1 rounded border border-dashed transition-all cursor-pointer ${
+                        t.bgWhiteout ? 'bg-white shadow-sm ring-1 ring-slate-300' : 'bg-white/40 dark:bg-black/40'
+                      } ${
                         selectedTextId === t.id
-                          ? 'border-brand-600 bg-brand-500/10 ring-2 ring-brand-500/40'
-                          : 'border-slate-400 bg-white/40 dark:bg-black/40'
+                          ? 'border-brand-600 ring-2 ring-brand-500/40'
+                          : 'border-slate-400 hover:border-brand-500'
                       }`}
                     >
                       <span>{t.text}</span>
@@ -582,7 +660,7 @@ export const PdfEditor: React.FC = () => {
                         width: `${img.widthPct}%`,
                         height: `${img.heightPct}%`
                       }}
-                      className={`absolute z-10 p-0.5 rounded border border-dashed transition-all hover:border-brand-500 group ${
+                      className={`absolute z-10 p-0.5 rounded border border-dashed transition-all cursor-pointer hover:border-brand-500 group ${
                         selectedImageId === img.id
                           ? 'border-brand-600 ring-2 ring-brand-500/40'
                           : 'border-slate-400'
@@ -610,7 +688,7 @@ export const PdfEditor: React.FC = () => {
 
             <p className="text-[11px] text-slate-500 text-center flex items-center justify-center gap-1.5">
               <MousePointer size={13} className="text-brand-500" />
-              <span>Click anywhere on the PDF page above to analyze existing text/fonts and set target overlay placement coordinates.</span>
+              <span>Click anywhere on the PDF page above to analyze existing text/fonts and set target text edit placement.</span>
             </p>
           </div>
 
@@ -631,7 +709,7 @@ export const PdfEditor: React.FC = () => {
                   }`}
                 >
                   <Type size={14} />
-                  <span>Add Text</span>
+                  <span>{selectedTextId ? 'Edit Text' : 'Add Text'}</span>
                 </button>
 
                 <button
@@ -659,9 +737,22 @@ export const PdfEditor: React.FC = () => {
                 </button>
               </div>
 
-              {/* TAB 1: ADD TEXT */}
+              {/* TAB 1: ADD & EDIT TEXT */}
               {activeTab === 'text' && (
                 <div className="space-y-4 text-xs font-semibold">
+                  
+                  {selectedTextId && (
+                    <div className="flex justify-between items-center bg-brand-500/10 p-2.5 rounded-lg text-brand-600 font-bold text-[11px]">
+                      <span>Editing Selected Text Overlay</span>
+                      <button
+                        onClick={resetTextForm}
+                        className="text-xs hover:underline text-slate-500"
+                      >
+                        + Create New Text
+                      </button>
+                    </div>
+                  )}
+
                   <div>
                     <label className="block text-slate-700 dark:text-slate-300 mb-1">Text Content</label>
                     <textarea
@@ -718,6 +809,25 @@ export const PdfEditor: React.FC = () => {
                     </div>
                   </div>
 
+                  {/* Cover Original Text / Whiteout Option */}
+                  <label className="flex items-center gap-2 p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={bgWhiteout}
+                      onChange={(e) => setBgWhiteout(e.target.checked)}
+                      className="rounded text-brand-600 focus:ring-brand-500 h-4 w-4"
+                    />
+                    <div className="flex flex-col">
+                      <span className="text-slate-800 dark:text-slate-200 font-bold flex items-center gap-1.5">
+                        <Eraser size={13} className="text-brand-500" />
+                        <span>Cover / Whiteout Original PDF Text</span>
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-normal">
+                        Erases the underlying PDF text before drawing edited text on top.
+                      </span>
+                    </div>
+                  </label>
+
                   {/* Position Coordinates */}
                   <div className="p-3 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
                     <div className="flex justify-between items-center text-[11px]">
@@ -752,11 +862,11 @@ export const PdfEditor: React.FC = () => {
                   </div>
 
                   <button
-                    onClick={handleAddTextOverlay}
+                    onClick={handleSaveTextOverlay}
                     className="w-full py-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-md shadow-brand-600/15 transition-all"
                   >
-                    <Plus size={14} />
-                    <span>Insert Text Overlay</span>
+                    {selectedTextId ? <Check size={14} /> : <Plus size={14} />}
+                    <span>{selectedTextId ? 'Save Text Changes' : 'Insert Text Overlay'}</span>
                   </button>
                 </div>
               )}
@@ -819,12 +929,12 @@ export const PdfEditor: React.FC = () => {
                 </div>
               )}
 
-              {/* TAB 3: FONT ANALYSIS */}
+              {/* TAB 3: FONT ANALYSIS & QUICK REPLACE */}
               {activeTab === 'analysis' && (
                 <div className="space-y-4 text-xs">
                   <h4 className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
                     <Sparkles size={14} className="text-amber-500" />
-                    <span>Analyzed Font & Position</span>
+                    <span>Analyzed Font & Quick Replace</span>
                   </h4>
 
                   {isAnalyzing ? (
@@ -832,7 +942,7 @@ export const PdfEditor: React.FC = () => {
                       Analyzing PDF text layer at clicked position...
                     </div>
                   ) : analyzedFont ? (
-                    <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 space-y-2 text-slate-700 dark:text-slate-200">
+                    <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 space-y-3 text-slate-700 dark:text-slate-200">
                       <div>
                         <span className="text-[10px] uppercase tracking-wider text-slate-400 font-bold block">Detected Text Snippet</span>
                         <p className="font-semibold text-slate-900 dark:text-white bg-white dark:bg-slate-900 p-2 rounded border border-slate-200 dark:border-slate-800 mt-1">
@@ -852,13 +962,21 @@ export const PdfEditor: React.FC = () => {
                       </div>
 
                       <div className="pt-2 border-t border-amber-500/20">
-                        <span className="text-slate-400 text-[10px] block">Suggested Standard Font Match</span>
+                        <span className="text-slate-400 text-[10px] block">Suggested Font Match</span>
                         <span className="font-bold text-brand-600 dark:text-brand-400">{analyzedFont.suggestedFontKey}</span>
                       </div>
+
+                      <button
+                        onClick={handleReplaceDetectedText}
+                        className="w-full py-2.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow transition-all"
+                      >
+                        <Edit3 size={13} />
+                        <span>Edit & Replace This Text Snippet</span>
+                      </button>
                     </div>
                   ) : (
                     <p className="text-slate-500 text-center py-6">
-                      Click anywhere on the PDF page to inspect and analyze existing PDF text fonts.
+                      Click anywhere on the PDF page to inspect, edit, and replace existing PDF text snippets.
                     </p>
                   )}
                 </div>
@@ -875,14 +993,22 @@ export const PdfEditor: React.FC = () => {
                     {textOverlays.map((t) => (
                       <div
                         key={t.id}
-                        className="flex justify-between items-center p-2 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px]"
+                        onClick={() => loadTextOverlayToForm(t)}
+                        className={`flex justify-between items-center p-2 rounded-lg border text-[11px] cursor-pointer transition-all ${
+                          selectedTextId === t.id
+                            ? 'bg-brand-500/10 border-brand-500 text-brand-600 font-bold'
+                            : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100'
+                        }`}
                       >
                         <div className="truncate flex-1 pr-2">
-                          <span className="font-bold text-slate-700 dark:text-slate-200">Pg {t.pageNumber}:</span>{" "}
-                          <span className="text-slate-500">{t.text}</span>
+                          <span className="font-bold">Pg {t.pageNumber}:</span>{" "}
+                          <span>{t.text}</span>
                         </div>
                         <button
-                          onClick={() => handleRemoveText(t.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRemoveText(t.id);
+                          }}
                           className="text-rose-500 hover:text-rose-700 p-1"
                         >
                           <Trash2 size={12} />
