@@ -19,7 +19,9 @@ import {
   Check,
   Eraser,
   Move,
-  X
+  X,
+  Crop,
+  Hand
 } from 'lucide-react';
 import FileUpload from '../../components/shared/FileUpload';
 import ToolHeader from '../../components/shared/ToolHeader';
@@ -30,6 +32,7 @@ import { useLanguage } from '../../context/LanguageContext';
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 export type StandardFontKey = 'Helvetica' | 'HelveticaBold' | 'TimesRoman' | 'TimesRomanBold' | 'Courier' | 'CourierBold';
+export type EditorMode = 'move' | 'text' | 'crop';
 
 export interface TextOverlay {
   id: string;
@@ -54,6 +57,16 @@ export interface ImageOverlay {
   yPct: number;
 }
 
+export interface CropBoxOverlay {
+  id: string;
+  pageNumber: number;
+  xPct: number;
+  yPct: number;
+  widthPct: number;
+  heightPct: number;
+  color: string;
+}
+
 export interface AnalyzedFontInfo {
   detectedText: string;
   fontName: string;
@@ -71,6 +84,9 @@ export const PdfEditor: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [renderScale, setRenderScale] = useState<number>(1.2);
 
+  // Editor Mode: 'move' | 'text' | 'crop'
+  const [editorMode, setEditorMode] = useState<EditorMode>('move');
+
   // PDF JS Doc reference
   const pdfDocRef = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -79,10 +95,12 @@ export const PdfEditor: React.FC = () => {
   // Overlays
   const [textOverlays, setTextOverlays] = useState<TextOverlay[]>([]);
   const [imageOverlays, setImageOverlays] = useState<ImageOverlay[]>([]);
+  const [cropBoxes, setCropBoxes] = useState<CropBoxOverlay[]>([]);
   
   // Selected Overlay for editing
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
+  const [selectedCropId, setSelectedCropId] = useState<string | null>(null);
 
   // Font Analysis state
   const [analyzedFont, setAnalyzedFont] = useState<AnalyzedFontInfo | null>(null);
@@ -115,8 +133,13 @@ export const PdfEditor: React.FC = () => {
   const [imgWidthPct, setImgWidthPct] = useState<number>(25);
   const [imgHeightPct, setImgHeightPct] = useState<number>(15);
 
-  // Active Tab: 'text' | 'image' | 'analysis'
-  const [activeTab, setActiveTab] = useState<'text' | 'image' | 'analysis'>('text');
+  // Crop Box Form State
+  const [cropBoxWidthPct, setCropBoxWidthPct] = useState<number>(30);
+  const [cropBoxHeightPct, setCropBoxHeightPct] = useState<number>(10);
+  const [cropBoxColor, setCropBoxColor] = useState<string>('#FFFFFF');
+
+  // Active Tab: 'text' | 'image' | 'crop' | 'analysis'
+  const [activeTab, setActiveTab] = useState<'text' | 'image' | 'crop' | 'analysis'>('text');
 
   // Processing & Export
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
@@ -129,9 +152,11 @@ export const PdfEditor: React.FC = () => {
     setPdfFile(file);
     setTextOverlays([]);
     setImageOverlays([]);
+    setCropBoxes([]);
     setAnalyzedFont(null);
     setSelectedTextId(null);
     setSelectedImageId(null);
+    setSelectedCropId(null);
     setIsEditModalOpen(false);
     setCurrentPage(1);
 
@@ -184,6 +209,7 @@ export const PdfEditor: React.FC = () => {
   const loadTextOverlayToForm = (overlay: TextOverlay) => {
     setSelectedTextId(overlay.id);
     setSelectedImageId(null);
+    setSelectedCropId(null);
     setNewText(overlay.text);
     setFontFamily(overlay.fontFamily);
     setFontSize(overlay.fontSize);
@@ -212,11 +238,25 @@ export const PdfEditor: React.FC = () => {
   const selectImageOverlay = (img: ImageOverlay) => {
     setSelectedImageId(img.id);
     setSelectedTextId(null);
+    setSelectedCropId(null);
     setImgWidthPct(img.widthPct);
     setImgHeightPct(img.heightPct);
     setClickX(img.xPct);
     setClickY(img.yPct);
     setActiveTab('image');
+  };
+
+  // Select crop box overlay
+  const selectCropOverlay = (cropItem: CropBoxOverlay) => {
+    setSelectedCropId(cropItem.id);
+    setSelectedTextId(null);
+    setSelectedImageId(null);
+    setCropBoxWidthPct(cropItem.widthPct);
+    setCropBoxHeightPct(cropItem.heightPct);
+    setCropBoxColor(cropItem.color);
+    setClickX(cropItem.xPct);
+    setClickY(cropItem.yPct);
+    setActiveTab('crop');
   };
 
   // Reset text form
@@ -229,7 +269,7 @@ export const PdfEditor: React.FC = () => {
     setBgWhiteout(true);
   };
 
-  // Handle Canvas Click: Always opens the Direct Text Edit Modal for ANY PDF (native or scanned!)
+  // Handle Canvas Click: Depends on active Tool Mode ('text', 'crop', 'move')
   const handleCanvasClick = async (e: React.MouseEvent<HTMLDivElement>) => {
     if (!canvasRef.current || !pdfDocRef.current) return;
 
@@ -243,17 +283,42 @@ export const PdfEditor: React.FC = () => {
     setClickX(xPct);
     setClickY(yPct);
 
-    // Update position of selected overlay if any
-    if (selectedImageId) {
-      setImageOverlays((prev) =>
-        prev.map((img) => (img.id === selectedImageId ? { ...img, xPct, yPct } : img))
-      );
-    } else if (selectedTextId) {
-      setTextOverlays((prev) =>
-        prev.map((t) => (t.id === selectedTextId ? { ...t, xPct, yPct } : t))
-      );
+    // If in Crop Mode, add a Crop / Erase Box at clicked position
+    if (editorMode === 'crop') {
+      const newCropBox: CropBoxOverlay = {
+        id: 'crop-' + Date.now(),
+        pageNumber: currentPage,
+        xPct,
+        yPct,
+        widthPct: cropBoxWidthPct,
+        heightPct: cropBoxHeightPct,
+        color: cropBoxColor
+      };
+      setCropBoxes((prev) => [...prev, newCropBox]);
+      setSelectedCropId(newCropBox.id);
+      setActiveTab('crop');
+      return;
     }
 
+    // Update position of selected overlay if in Move Mode
+    if (editorMode === 'move') {
+      if (selectedImageId) {
+        setImageOverlays((prev) =>
+          prev.map((img) => (img.id === selectedImageId ? { ...img, xPct, yPct } : img))
+        );
+      } else if (selectedTextId) {
+        setTextOverlays((prev) =>
+          prev.map((t) => (t.id === selectedTextId ? { ...t, xPct, yPct } : t))
+        );
+      } else if (selectedCropId) {
+        setCropBoxes((prev) =>
+          prev.map((cb) => (cb.id === selectedCropId ? { ...cb, xPct, yPct } : cb))
+        );
+      }
+      return;
+    }
+
+    // In Text Mode ('text'): Analyze font & Open Direct Text Editing Modal
     setIsAnalyzing(true);
     let detectedLineText = '';
     let fontName = 'Standard Sans-Serif';
@@ -278,7 +343,6 @@ export const PdfEditor: React.FC = () => {
       });
 
       if (lineItems.length > 0) {
-        // Sort items left-to-right by X position
         lineItems.sort((a, b) => a.transform[4] - b.transform[4]);
         detectedLineText = lineItems.map((i) => i.str).join(' ').replace(/\s+/g, ' ').trim();
 
@@ -311,7 +375,7 @@ export const PdfEditor: React.FC = () => {
       setIsAnalyzing(false);
     }
 
-    // ALWAYS OPEN DIRECT EDIT POPUP MODAL at clicked position for ALL PDFs!
+    // OPEN DIRECT TEXT EDIT MODAL
     setEditingOverlayId(null);
     setModalOriginalText(detectedLineText);
     setModalNewText(detectedLineText || 'Edited Text');
@@ -462,6 +526,54 @@ export const PdfEditor: React.FC = () => {
     window.addEventListener('mouseup', onMouseUp);
   };
 
+  // Handle Drag-to-Move for Crop Boxes
+  const handleCropMoveStart = (e: React.MouseEvent, cropId: string) => {
+    e.stopPropagation();
+    e.preventDefault();
+
+    if (!canvasRef.current) return;
+    const canvasRect = canvasRef.current.getBoundingClientRect();
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+
+    const cb = cropBoxes.find((c) => c.id === cropId);
+    if (!cb) return;
+
+    selectCropOverlay(cb);
+
+    const startXPct = cb.xPct;
+    const startYPct = cb.yPct;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const dxPx = moveEvent.clientX - startX;
+      const dyPx = moveEvent.clientY - startY;
+
+      const dxPct = (dxPx / canvasRect.width) * 100;
+      const dyPct = (dyPx / canvasRect.height) * 100;
+
+      const newXPct = Math.round(Math.max(0, Math.min(95, startXPct + dxPct)));
+      const newYPct = Math.round(Math.max(0, Math.min(95, startYPct + dyPct)));
+
+      setClickX(newXPct);
+      setClickY(newYPct);
+
+      setCropBoxes((prev) =>
+        prev.map((item) =>
+          item.id === cropId ? { ...item, xPct: newXPct, yPct: newYPct } : item
+        )
+      );
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
+
   // Handle Corner Drag Resize for Image Overlays
   const handleImageResizeStart = (
     e: React.MouseEvent,
@@ -545,6 +657,89 @@ export const PdfEditor: React.FC = () => {
     window.addEventListener('mouseup', onMouseUp);
   };
 
+  // Handle Corner Drag Resize for Crop Boxes
+  const handleCropResizeStart = (
+    e: React.MouseEvent,
+    cropId: string,
+    corner: 'se' | 'sw' | 'ne' | 'nw'
+  ) => {
+    e.stopPropagation();
+    e.preventDefault();
+
+    if (!canvasRef.current) return;
+    const canvasRect = canvasRef.current.getBoundingClientRect();
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+
+    const cb = cropBoxes.find((c) => c.id === cropId);
+    if (!cb) return;
+
+    const startW = cb.widthPct;
+    const startH = cb.heightPct;
+    const startXPct = cb.xPct;
+    const startYPct = cb.yPct;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const dxPx = moveEvent.clientX - startX;
+      const dyPx = moveEvent.clientY - startY;
+
+      const dxPct = (dxPx / canvasRect.width) * 100;
+      const dyPct = (dyPx / canvasRect.height) * 100;
+
+      setCropBoxes((prev) =>
+        prev.map((item) => {
+          if (item.id !== cropId) return item;
+
+          let newW = startW;
+          let newH = startH;
+          let newX = startXPct;
+          let newY = startYPct;
+
+          if (corner === 'se') {
+            newW = Math.max(5, Math.min(90, startW + dxPct));
+            newH = Math.max(5, Math.min(90, startH + dyPct));
+          } else if (corner === 'sw') {
+            newW = Math.max(5, Math.min(90, startW - dxPct));
+            newH = Math.max(5, Math.min(90, startH + dyPct));
+            newX = Math.max(0, Math.min(95, startXPct + dxPct));
+          } else if (corner === 'ne') {
+            newW = Math.max(5, Math.min(90, startW + dxPct));
+            newH = Math.max(5, Math.min(90, startH - dyPct));
+            newY = Math.max(0, Math.min(95, startYPct + dyPct));
+          } else if (corner === 'nw') {
+            newW = Math.max(5, Math.min(90, startW - dxPct));
+            newH = Math.max(5, Math.min(90, startH - dyPct));
+            newX = Math.max(0, Math.min(95, startXPct + dxPct));
+            newY = Math.max(0, Math.min(95, startYPct + dyPct));
+          }
+
+          const roundedW = Math.round(newW);
+          const roundedH = Math.round(newH);
+
+          setCropBoxWidthPct(roundedW);
+          setCropBoxHeightPct(roundedH);
+
+          return {
+            ...item,
+            widthPct: roundedW,
+            heightPct: roundedH,
+            xPct: Math.round(newX),
+            yPct: Math.round(newY)
+          };
+        })
+      );
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
+
   // Replace Detected Original PDF Text
   const handleReplaceDetectedText = () => {
     if (!analyzedFont) return;
@@ -600,6 +795,21 @@ export const PdfEditor: React.FC = () => {
     }
   };
 
+  // Add Crop Box Overlay
+  const handleAddCropBox = () => {
+    const overlay: CropBoxOverlay = {
+      id: 'crop-' + Date.now(),
+      pageNumber: currentPage,
+      xPct: clickX,
+      yPct: clickY,
+      widthPct: cropBoxWidthPct,
+      heightPct: cropBoxHeightPct,
+      color: cropBoxColor
+    };
+    setCropBoxes((prev) => [...prev, overlay]);
+    setSelectedCropId(overlay.id);
+  };
+
   // Image Upload Handler
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -645,6 +855,11 @@ export const PdfEditor: React.FC = () => {
     if (selectedImageId === id) setSelectedImageId(null);
   };
 
+  const handleRemoveCropBox = (id: string) => {
+    setCropBoxes((prev) => prev.filter((c) => c.id !== id));
+    if (selectedCropId === id) setSelectedCropId(null);
+  };
+
   // Export Edited PDF
   const handleExportPdf = async () => {
     if (!arrayBuffer || !pdfFile) return;
@@ -658,7 +873,7 @@ export const PdfEditor: React.FC = () => {
       const pages = pdfDoc.getPages();
 
       // Embed Standard Fonts
-      setProgress(30);
+      setProgress(25);
       setLoadingText('Embedding custom fonts...');
       const embeddedFonts = {
         Helvetica: await pdfDoc.embedFont(StandardFonts.Helvetica),
@@ -669,8 +884,37 @@ export const PdfEditor: React.FC = () => {
         CourierBold: await pdfDoc.embedFont(StandardFonts.CourierBold),
       };
 
+      // Draw Crop / Whiteout Boxes First
+      setProgress(40);
+      setLoadingText('Applying Whiteout / Crop boxes...');
+      for (const cb of cropBoxes) {
+        const pageIdx = cb.pageNumber - 1;
+        if (pageIdx < 0 || pageIdx >= pages.length) continue;
+
+        const page = pages[pageIdx];
+        const { width, height } = page.getSize();
+
+        const boxW = (cb.widthPct / 100) * width;
+        const boxH = (cb.heightPct / 100) * height;
+        const pdfX = (cb.xPct / 100) * width;
+        const pdfY = height - ((cb.yPct / 100) * height) - boxH;
+
+        const hex = cb.color.replace('#', '');
+        const r = parseInt(hex.substring(0, 2) || 'FF', 16) / 255;
+        const g = parseInt(hex.substring(2, 4) || 'FF', 16) / 255;
+        const b = parseInt(hex.substring(4, 6) || 'FF', 16) / 255;
+
+        page.drawRectangle({
+          x: Math.max(0, pdfX),
+          y: Math.max(0, pdfY),
+          width: boxW,
+          height: boxH,
+          color: rgb(r, g, b)
+        });
+      }
+
       // Draw Text Overlays
-      setProgress(50);
+      setProgress(60);
       setLoadingText('Drawing text overlays...');
       for (const textOverlay of textOverlays) {
         const pageIdx = textOverlay.pageNumber - 1;
@@ -714,7 +958,7 @@ export const PdfEditor: React.FC = () => {
       }
 
       // Draw Image Overlays
-      setProgress(75);
+      setProgress(80);
       setLoadingText('Embedding image overlays...');
       for (const imgOverlay of imageOverlays) {
         const pageIdx = imgOverlay.pageNumber - 1;
@@ -914,8 +1158,55 @@ export const PdfEditor: React.FC = () => {
           {/* Main Interactive Workspace (Canvas & Overlay Preview) */}
           <div className="lg:col-span-2 space-y-4">
             
-            {/* Toolbar */}
+            {/* Toolbar with Tool Modes Selector */}
             <div className="flex flex-wrap justify-between items-center bg-white dark:bg-dark-card p-3 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm gap-2">
+              
+              {/* Tool Modes */}
+              <div className="flex items-center bg-slate-100 dark:bg-slate-900 p-1 rounded-lg border border-slate-200 dark:border-slate-800 gap-1">
+                <button
+                  onClick={() => setEditorMode('move')}
+                  className={`px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1.5 transition-all ${
+                    editorMode === 'move'
+                      ? 'bg-white dark:bg-dark-card text-brand-600 shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                  }`}
+                  title="Move Tool: Drag overlays or resize corners"
+                >
+                  <Hand size={14} />
+                  <span>Move & Scale</span>
+                </button>
+
+                <button
+                  onClick={() => setEditorMode('text')}
+                  className={`px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1.5 transition-all ${
+                    editorMode === 'text'
+                      ? 'bg-white dark:bg-dark-card text-brand-600 shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                  }`}
+                  title="Text Mode: Click anywhere to edit or add text"
+                >
+                  <Edit3 size={14} />
+                  <span>Edit Text</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setEditorMode('crop');
+                    setActiveTab('crop');
+                  }}
+                  className={`px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1.5 transition-all ${
+                    editorMode === 'crop'
+                      ? 'bg-white dark:bg-dark-card text-brand-600 shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                  }`}
+                  title="Crop / Whiteout Tool: Click to place whiteout box to hide content"
+                >
+                  <Crop size={14} />
+                  <span>Crop & Erase Box</span>
+                </button>
+              </div>
+
+              {/* Page Controls */}
               <div className="flex items-center gap-2">
                 <button
                   disabled={currentPage <= 1}
@@ -926,7 +1217,7 @@ export const PdfEditor: React.FC = () => {
                   <ChevronLeft size={16} />
                 </button>
                 <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
-                  Page {currentPage} of {numPages}
+                  Pg {currentPage} / {numPages}
                 </span>
                 <button
                   disabled={currentPage >= numPages}
@@ -938,6 +1229,7 @@ export const PdfEditor: React.FC = () => {
                 </button>
               </div>
 
+              {/* Zoom & PDF Change */}
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setRenderScale((s) => Math.max(0.8, s - 0.2))}
@@ -956,18 +1248,18 @@ export const PdfEditor: React.FC = () => {
                 >
                   <ZoomIn size={16} />
                 </button>
-              </div>
 
-              <button
-                onClick={() => {
-                  setPdfFile(null);
-                  setArrayBuffer(null);
-                  pdfDocRef.current = null;
-                }}
-                className="text-xs text-rose-500 font-bold hover:underline"
-              >
-                Change PDF
-              </button>
+                <button
+                  onClick={() => {
+                    setPdfFile(null);
+                    setArrayBuffer(null);
+                    pdfDocRef.current = null;
+                  }}
+                  className="text-xs text-rose-500 font-bold hover:underline ml-2"
+                >
+                  Change PDF
+                </button>
+              </div>
             </div>
 
             {/* Interactive Canvas Viewport */}
@@ -982,9 +1274,84 @@ export const PdfEditor: React.FC = () => {
               <div
                 ref={containerRef}
                 onClick={handleCanvasClick}
-                className="relative cursor-crosshair shadow-2xl rounded bg-white inline-block select-none"
+                className={`relative shadow-2xl rounded bg-white inline-block select-none ${
+                  editorMode === 'crop'
+                    ? 'cursor-crosshair'
+                    : editorMode === 'text'
+                    ? 'cursor-text'
+                    : 'cursor-default'
+                }`}
               >
                 <canvas ref={canvasRef} className="block rounded max-w-full" />
+
+                {/* Render Crop / Whiteout Erase Boxes */}
+                {cropBoxes
+                  .filter((cb) => cb.pageNumber === currentPage)
+                  .map((cb) => (
+                    <div
+                      key={cb.id}
+                      onMouseDown={(e) => handleCropMoveStart(e, cb.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        selectCropOverlay(cb);
+                      }}
+                      style={{
+                        left: `${cb.xPct}%`,
+                        top: `${cb.yPct}%`,
+                        width: `${cb.widthPct}%`,
+                        height: `${cb.heightPct}%`,
+                        backgroundColor: cb.color
+                      }}
+                      className={`absolute z-10 border-2 border-dashed transition-all cursor-grab active:cursor-grabbing group shadow-xs ${
+                        selectedCropId === cb.id
+                          ? 'border-amber-500 ring-2 ring-amber-500/40'
+                          : 'border-slate-400 hover:border-amber-500'
+                      }`}
+                    >
+                      {/* Whiteout Label */}
+                      <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold text-slate-400 pointer-events-none opacity-60">
+                        [Whiteout Erase Box]
+                      </span>
+
+                      {/* Remove Button */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRemoveCropBox(cb.id);
+                        }}
+                        className="absolute -top-2 -right-2 bg-rose-600 text-white rounded-full w-4 h-4 text-[10px] flex items-center justify-center font-bold shadow z-20"
+                        title="Delete Whiteout Box"
+                      >
+                        ×
+                      </button>
+
+                      {/* Interactive Corner Resize Handles for Crop Box */}
+                      {selectedCropId === cb.id && (
+                        <>
+                          <div
+                            onMouseDown={(e) => handleCropResizeStart(e, cb.id, 'se')}
+                            className="absolute bottom-0 right-0 translate-x-1/2 translate-y-1/2 w-4 h-4 bg-amber-500 border-2 border-white rounded-full cursor-se-resize shadow-md z-20 hover:scale-125 transition-transform"
+                            title="Drag corner to resize crop box"
+                          />
+                          <div
+                            onMouseDown={(e) => handleCropResizeStart(e, cb.id, 'sw')}
+                            className="absolute bottom-0 left-0 -translate-x-1/2 translate-y-1/2 w-4 h-4 bg-amber-500 border-2 border-white rounded-full cursor-sw-resize shadow-md z-20 hover:scale-125 transition-transform"
+                            title="Drag corner to resize crop box"
+                          />
+                          <div
+                            onMouseDown={(e) => handleCropResizeStart(e, cb.id, 'ne')}
+                            className="absolute top-0 right-0 translate-x-1/2 -translate-y-1/2 w-4 h-4 bg-amber-500 border-2 border-white rounded-full cursor-ne-resize shadow-md z-20 hover:scale-125 transition-transform"
+                            title="Drag corner to resize crop box"
+                          />
+                          <div
+                            onMouseDown={(e) => handleCropResizeStart(e, cb.id, 'nw')}
+                            className="absolute top-0 left-0 -translate-x-1/2 -translate-y-1/2 w-4 h-4 bg-amber-500 border-2 border-white rounded-full cursor-nw-resize shadow-md z-20 hover:scale-125 transition-transform"
+                            title="Drag corner to resize crop box"
+                          />
+                        </>
+                      )}
+                    </div>
+                  ))}
 
                 {/* Render Text Overlays for Current Page */}
                 {textOverlays
@@ -1097,25 +1464,21 @@ export const PdfEditor: React.FC = () => {
                       {/* Interactive Corner Resize Handles */}
                       {selectedImageId === img.id && (
                         <>
-                          {/* Bottom-Right Handle */}
                           <div
                             onMouseDown={(e) => handleImageResizeStart(e, img.id, 'se')}
                             className="absolute bottom-0 right-0 translate-x-1/2 translate-y-1/2 w-4 h-4 bg-brand-600 border-2 border-white rounded-full cursor-se-resize shadow-md z-20 hover:scale-125 transition-transform"
                             title="Drag corner to resize image"
                           />
-                          {/* Bottom-Left Handle */}
                           <div
                             onMouseDown={(e) => handleImageResizeStart(e, img.id, 'sw')}
                             className="absolute bottom-0 left-0 -translate-x-1/2 translate-y-1/2 w-4 h-4 bg-brand-600 border-2 border-white rounded-full cursor-sw-resize shadow-md z-20 hover:scale-125 transition-transform"
                             title="Drag corner to resize image"
                           />
-                          {/* Top-Right Handle */}
                           <div
                             onMouseDown={(e) => handleImageResizeStart(e, img.id, 'ne')}
                             className="absolute top-0 right-0 translate-x-1/2 -translate-y-1/2 w-4 h-4 bg-brand-600 border-2 border-white rounded-full cursor-ne-resize shadow-md z-20 hover:scale-125 transition-transform"
                             title="Drag corner to resize image"
                           />
-                          {/* Top-Left Handle */}
                           <div
                             onMouseDown={(e) => handleImageResizeStart(e, img.id, 'nw')}
                             className="absolute top-0 left-0 -translate-x-1/2 -translate-y-1/2 w-4 h-4 bg-brand-600 border-2 border-white rounded-full cursor-nw-resize shadow-md z-20 hover:scale-125 transition-transform"
@@ -1130,7 +1493,7 @@ export const PdfEditor: React.FC = () => {
 
             <p className="text-[11px] text-slate-500 text-center flex items-center justify-center gap-1.5">
               <MousePointer size={13} className="text-brand-500" />
-              <span>Click anywhere on the PDF page to edit text directly. Drag images or text to move anywhere!</span>
+              <span>Use <b>Move Mode</b> to drag/resize items. Use <b>Edit Text</b> to replace text, or <b>Crop Box</b> to erase content.</span>
             </p>
           </div>
 
@@ -1164,6 +1527,18 @@ export const PdfEditor: React.FC = () => {
                 >
                   <ImageIcon size={14} />
                   <span>Add Image</span>
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('crop')}
+                  className={`flex-1 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all ${
+                    activeTab === 'crop'
+                      ? 'bg-brand-500 text-white shadow-md shadow-brand-500/20'
+                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  <Crop size={14} />
+                  <span>Crop / Erase</span>
                 </button>
 
                 <button
@@ -1373,11 +1748,6 @@ export const PdfEditor: React.FC = () => {
                           />
                         </div>
                       </div>
-
-                      <p className="text-[10px] text-brand-600 font-medium text-center flex items-center justify-center gap-1">
-                        <Move size={12} />
-                        <span>Drag with mouse to move image anywhere on PDF!</span>
-                      </p>
                     </div>
                   )}
 
@@ -1392,7 +1762,92 @@ export const PdfEditor: React.FC = () => {
                 </div>
               )}
 
-              {/* TAB 3: FONT ANALYSIS & QUICK REPLACE */}
+              {/* TAB 3: CROP & WHITEOUT BOX */}
+              {activeTab === 'crop' && (
+                <div className="space-y-4 text-xs font-semibold">
+                  <h4 className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                    <Crop size={14} className="text-amber-500" />
+                    <span>Crop & Erase Box (Whiteout)</span>
+                  </h4>
+
+                  <p className="text-[11px] text-slate-500">
+                    Add a Whiteout Box to cover or erase any unwanted area, text, logo, or header on the PDF page.
+                  </p>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-700 dark:text-slate-300 mb-1">Box Width (%)</label>
+                      <input
+                        type="range"
+                        min={5}
+                        max={90}
+                        value={cropBoxWidthPct}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          setCropBoxWidthPct(val);
+                          if (selectedCropId) {
+                            setCropBoxes((prev) =>
+                              prev.map((c) => (c.id === selectedCropId ? { ...c, widthPct: val } : c))
+                            );
+                          }
+                        }}
+                        className="w-full accent-amber-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-700 dark:text-slate-300 mb-1">Box Height (%)</label>
+                      <input
+                        type="range"
+                        min={3}
+                        max={80}
+                        value={cropBoxHeightPct}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          setCropBoxHeightPct(val);
+                          if (selectedCropId) {
+                            setCropBoxes((prev) =>
+                              prev.map((c) => (c.id === selectedCropId ? { ...c, heightPct: val } : c))
+                            );
+                          }
+                        }}
+                        className="w-full accent-amber-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-700 dark:text-slate-300 mb-1">Erase Box Color</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={cropBoxColor}
+                        onChange={(e) => {
+                          const col = e.target.value;
+                          setCropBoxColor(col);
+                          if (selectedCropId) {
+                            setCropBoxes((prev) =>
+                              prev.map((c) => (c.id === selectedCropId ? { ...c, color: col } : c))
+                            );
+                          }
+                        }}
+                        className="w-8 h-8 p-0.5 rounded border cursor-pointer"
+                      />
+                      <span className="text-slate-500 font-mono text-[11px] uppercase">{cropBoxColor} (Whiteout)</span>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleAddCropBox}
+                    className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow-md shadow-amber-500/20 transition-all"
+                  >
+                    <Plus size={14} />
+                    <span>Add Whiteout Erase Box</span>
+                  </button>
+                </div>
+              )}
+
+              {/* TAB 4: FONT ANALYSIS & QUICK REPLACE */}
               {activeTab === 'analysis' && (
                 <div className="space-y-4 text-xs">
                   <h4 className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
@@ -1446,10 +1901,10 @@ export const PdfEditor: React.FC = () => {
               )}
 
               {/* Added Overlays List */}
-              {(textOverlays.length > 0 || imageOverlays.length > 0) && (
+              {(textOverlays.length > 0 || imageOverlays.length > 0 || cropBoxes.length > 0) && (
                 <div className="border-t border-slate-100 dark:border-slate-800 pt-4 space-y-2">
                   <h4 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                    Added Overlays ({textOverlays.length + imageOverlays.length})
+                    Added Overlays ({textOverlays.length + imageOverlays.length + cropBoxes.length})
                   </h4>
 
                   <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1">
@@ -1497,6 +1952,32 @@ export const PdfEditor: React.FC = () => {
                           onClick={(e) => {
                             e.stopPropagation();
                             handleRemoveImage(img.id);
+                          }}
+                          className="text-rose-500 hover:text-rose-700 p-1"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    ))}
+
+                    {cropBoxes.map((cb) => (
+                      <div
+                        key={cb.id}
+                        onClick={() => selectCropOverlay(cb)}
+                        className={`flex justify-between items-center p-2 rounded-lg border text-[11px] cursor-pointer transition-all ${
+                          selectedCropId === cb.id
+                            ? 'bg-amber-500/10 border-amber-500 text-amber-700 font-bold'
+                            : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        <div className="truncate flex-1 pr-2">
+                          <span className="font-bold">Pg {cb.pageNumber}:</span>{" "}
+                          <span>Whiteout Crop Box ({cb.widthPct}% x {cb.heightPct}%)</span>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRemoveCropBox(cb.id);
                           }}
                           className="text-rose-500 hover:text-rose-700 p-1"
                         >
