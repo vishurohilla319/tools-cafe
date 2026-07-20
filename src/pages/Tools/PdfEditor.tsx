@@ -550,14 +550,12 @@ export const PdfEditor: React.FC = () => {
     const canvasRect = canvasRef.current.getBoundingClientRect();
 
     const startX = e.clientX;
-    const startY = e.clientY;
 
     const t = textOverlays.find((item) => item.id === textId);
     if (!t) return;
 
     const startW = t.widthPct || 25;
     const startXPct = t.xPct;
-    const startYPct = t.yPct;
 
     const onMouseMove = (moveEvent: MouseEvent) => {
       const dxPx = moveEvent.clientX - startX;
