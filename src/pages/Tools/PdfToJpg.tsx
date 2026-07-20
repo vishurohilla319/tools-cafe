@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
+// @ts-ignore
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { Download, FileImage, RefreshCw } from 'lucide-react';
 import FileUpload from '../../components/shared/FileUpload';
 import ToolHeader from '../../components/shared/ToolHeader';
@@ -7,7 +9,7 @@ import ProgressBar from '../../components/shared/ProgressBar';
 import { useLanguage } from '../../context/LanguageContext';
 
 // Set up worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`;
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 interface ConvertedImage {
   pageNumber: number;
@@ -89,9 +91,9 @@ export const PdfToJpg: React.FC = () => {
 
       setImages(renderedImages);
       setProgress(100);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert('Error rendering PDF. Please make sure the PDF is not encrypted or corrupt.');
+      alert(err?.message || 'Error rendering PDF. Please make sure the PDF is not encrypted or corrupt.');
     } finally {
       setIsProcessing(false);
     }
