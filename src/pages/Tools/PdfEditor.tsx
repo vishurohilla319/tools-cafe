@@ -19,7 +19,8 @@ import {
   Check,
   Eraser,
   Move,
-  X
+  X,
+  ShieldAlert
 } from 'lucide-react';
 import FileUpload from '../../components/shared/FileUpload';
 import ToolHeader from '../../components/shared/ToolHeader';
@@ -229,7 +230,7 @@ export const PdfEditor: React.FC = () => {
     setBgWhiteout(true);
   };
 
-  // Handle Canvas Click for Analysis and opening Direct Text Edit Popover
+  // Handle Canvas Click: Always opens the Direct Text Edit Modal for ANY PDF (native or scanned!)
   const handleCanvasClick = async (e: React.MouseEvent<HTMLDivElement>) => {
     if (!canvasRef.current || !pdfDocRef.current) return;
 
@@ -254,8 +255,12 @@ export const PdfEditor: React.FC = () => {
       );
     }
 
-    // Perform font analysis at clicked coordinate
     setIsAnalyzing(true);
+    let detectedLineText = '';
+    let fontName = 'Standard Sans-Serif';
+    let detectedSize = 14;
+    let suggestedFont: StandardFontKey = 'Helvetica';
+
     try {
       const page = await pdfDocRef.current.getPage(currentPage);
       const textContent = await page.getTextContent();
@@ -265,27 +270,24 @@ export const PdfEditor: React.FC = () => {
       const pdfX = (xPx / rect.width) * viewport.width;
       const pdfY = viewport.height - ((yPx / rect.height) * viewport.height);
 
-      let closestItem: any = null;
-      let minDistance = Infinity;
-
-      for (const item of textContent.items as any[]) {
-        if (!item.str || !item.transform) continue;
+      // Find nearby items on the same horizontal text line
+      const lineItems = (textContent.items as any[]).filter((item) => {
+        if (!item.str || !item.transform) return false;
         const itemX = item.transform[4];
         const itemY = item.transform[5];
+        return Math.abs(pdfY - itemY) < 18 && Math.abs(pdfX - itemX) < 180;
+      });
 
-        const dist = Math.hypot(pdfX - itemX, pdfY - itemY);
-        if (dist < minDistance && dist < 120) {
-          minDistance = dist;
-          closestItem = item;
-        }
-      }
+      if (lineItems.length > 0) {
+        // Sort items left-to-right by X position
+        lineItems.sort((a, b) => a.transform[4] - b.transform[4]);
+        detectedLineText = lineItems.map((i) => i.str).join(' ').replace(/\s+/g, ' ').trim();
 
-      if (closestItem && closestItem.str.trim()) {
-        const fontName: string = closestItem.fontName || 'Unknown';
-        const transformScale = Math.hypot(closestItem.transform[0], closestItem.transform[1]);
-        const detectedSize = Math.round(transformScale) || 12;
+        const firstItem = lineItems[0];
+        fontName = firstItem.fontName || 'Unknown';
+        const transformScale = Math.hypot(firstItem.transform[0], firstItem.transform[1]);
+        detectedSize = Math.round(transformScale) || 14;
 
-        let suggestedFont: StandardFontKey = 'Helvetica';
         const fontLower = fontName.toLowerCase();
         if (fontLower.includes('times') || fontLower.includes('serif')) {
           suggestedFont = fontLower.includes('bold') ? 'TimesRomanBold' : 'TimesRoman';
@@ -296,31 +298,10 @@ export const PdfEditor: React.FC = () => {
         }
 
         setAnalyzedFont({
-          detectedText: closestItem.str,
+          detectedText: detectedLineText,
           fontName,
           fontSize: detectedSize,
           suggestedFontKey: suggestedFont,
-          xPct,
-          yPct
-        });
-
-        // Open Direct Text Editing Popover Modal!
-        setEditingOverlayId(null);
-        setModalOriginalText(closestItem.str);
-        setModalNewText(closestItem.str);
-        setModalFontFamily(suggestedFont);
-        setModalFontSize(detectedSize);
-        setModalTextColor('#000000');
-        setModalWhiteout(true);
-        setModalXPct(xPct);
-        setModalYPct(yPct);
-        setIsEditModalOpen(true);
-      } else {
-        setAnalyzedFont({
-          detectedText: '(No specific text detected near click point)',
-          fontName: 'Standard Sans-Serif',
-          fontSize: 14,
-          suggestedFontKey: 'Helvetica',
           xPct,
           yPct
         });
@@ -330,6 +311,18 @@ export const PdfEditor: React.FC = () => {
     } finally {
       setIsAnalyzing(false);
     }
+
+    // ALWAYS OPEN DIRECT EDIT POPUP MODAL at clicked position for ALL PDFs!
+    setEditingOverlayId(null);
+    setModalOriginalText(detectedLineText);
+    setModalNewText(detectedLineText || 'Edited Text');
+    setModalFontFamily(suggestedFont);
+    setModalFontSize(detectedSize);
+    setModalTextColor('#000000');
+    setModalWhiteout(true);
+    setModalXPct(xPct);
+    setModalYPct(yPct);
+    setIsEditModalOpen(true);
   };
 
   // Save Direct Text Edit Modal
@@ -702,13 +695,13 @@ export const PdfEditor: React.FC = () => {
         // Draw Whiteout Background rectangle to cover original PDF text if requested
         if (textOverlay.bgWhiteout) {
           const textWidth = font.widthOfTextAtSize(textOverlay.text, textOverlay.fontSize);
-          const textHeight = textOverlay.fontSize * 1.25;
+          const textHeight = textOverlay.fontSize * 1.35;
           page.drawRectangle({
-            x: Math.max(0, pdfX - 2),
-            y: Math.max(0, pdfY - 2),
-            width: textWidth + 6,
+            x: Math.max(0, pdfX - 4),
+            y: Math.max(0, pdfY - 3),
+            width: Math.max(20, textWidth + 8),
             height: textHeight,
-            color: rgb(1, 1, 1) // White rectangle
+            color: rgb(1, 1, 1) // White rectangle to erase original text
           });
         }
 
@@ -811,7 +804,7 @@ export const PdfEditor: React.FC = () => {
                 <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3">
                   <h3 className="font-bold text-sm text-slate-800 dark:text-slate-100 flex items-center gap-2">
                     <Edit3 size={16} className="text-brand-500" />
-                    <span>Edit PDF Text Snippet</span>
+                    <span>Edit & Replace PDF Text</span>
                   </h3>
                   <button
                     onClick={() => setIsEditModalOpen(false)}
@@ -821,24 +814,28 @@ export const PdfEditor: React.FC = () => {
                   </button>
                 </div>
 
-                {modalOriginalText && (
+                {modalOriginalText ? (
                   <div className="bg-slate-50 dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 text-xs">
-                    <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">Original Text in PDF:</span>
-                    <p className="font-semibold text-slate-700 dark:text-slate-300 mt-0.5 font-mono">
+                    <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">Detected Original PDF Text:</span>
+                    <p className="font-semibold text-slate-700 dark:text-slate-300 mt-0.5 font-mono truncate">
                       "{modalOriginalText}"
                     </p>
                   </div>
+                ) : (
+                  <p className="text-[11px] text-brand-600 font-medium">
+                    💡 Clicked location (X: {modalXPct}%, Y: {modalYPct}%). Type your replacement text below:
+                  </p>
                 )}
 
                 <div className="space-y-3 text-xs font-semibold">
                   <div>
-                    <label className="block text-slate-700 dark:text-slate-300 mb-1">Replacement Text</label>
+                    <label className="block text-slate-700 dark:text-slate-300 mb-1">New Replacement Text</label>
                     <textarea
                       rows={2}
                       value={modalNewText}
                       onChange={(e) => setModalNewText(e.target.value)}
                       className="w-full p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-xs focus:ring-2 focus:ring-brand-500 outline-none"
-                      placeholder="Enter new text to replace..."
+                      placeholder="Type edited text to place on PDF..."
                       autoFocus
                     />
                   </div>
@@ -891,7 +888,7 @@ export const PdfEditor: React.FC = () => {
                         onChange={(e) => setModalWhiteout(e.target.checked)}
                         className="rounded text-brand-600 focus:ring-brand-500 h-3.5 w-3.5"
                       />
-                      <span className="text-slate-700 dark:text-slate-300">Whiteout Old Text</span>
+                      <span className="text-slate-700 dark:text-slate-300 font-bold">Whiteout Old Text</span>
                     </label>
                   </div>
                 </div>
@@ -1134,7 +1131,7 @@ export const PdfEditor: React.FC = () => {
 
             <p className="text-[11px] text-slate-500 text-center flex items-center justify-center gap-1.5">
               <MousePointer size={13} className="text-brand-500" />
-              <span>Click any text in the PDF to open instant direct text edit modal. Drag images or text to move anywhere!</span>
+              <span>Click anywhere on the PDF page to edit text directly. Drag images or text to move anywhere!</span>
             </p>
           </div>
 
