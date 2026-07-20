@@ -217,7 +217,6 @@ export const PdfEditor: React.FC = () => {
     const canvasRect = canvasRef.current.getBoundingClientRect();
 
     const startX = e.clientX;
-    const startY = e.clientY;
 
     const img = imageOverlays.find((i) => i.id === imgId);
     if (!img) return;
@@ -228,7 +227,6 @@ export const PdfEditor: React.FC = () => {
 
     const onMouseMove = (moveEvent: MouseEvent) => {
       const dxPx = moveEvent.clientX - startX;
-      const dyPx = moveEvent.clientY - startY;
 
       const dxPct = (dxPx / canvasRect.width) * 100;
 
