@@ -28,7 +28,8 @@ export interface PlacedImageOverlay {
   dataUrl: string;
   mimeType: 'image/png' | 'image/jpeg';
   widthPct: number; // % of page width
-  heightPct: number; // % of page height
+  heightPct: number; // % of page height (derived or calculated)
+  aspectRatio: number; // naturalWidth / naturalHeight
   xPct: number; // % from left of page
   yPct: number; // % from top of page
   opacity: number; // 0.1 to 1.0
@@ -49,12 +50,6 @@ export const PdfEditor: React.FC = () => {
   // Image Overlays
   const [imageOverlays, setImageOverlays] = useState<PlacedImageOverlay[]>([]);
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
-
-  // Default parameters for new image additions
-  const [applyToAllPages] = useState<boolean>(false);
-  const [defaultWidthPct] = useState<number>(25);
-  const [defaultHeightPct] = useState<number>(15);
-  const [defaultOpacity] = useState<number>(1.0);
 
   // Processing & Export Progress
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
@@ -116,7 +111,7 @@ export const PdfEditor: React.FC = () => {
     }
   }, [currentPage, renderScale, pdfDocRef.current]);
 
-  // Handle Image Upload (PNG, JPG, Stamp, Logo, Signature, Watermark)
+  // Handle Image Upload with Natural Aspect Ratio Calculation
   const handleImagesUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -129,21 +124,36 @@ export const PdfEditor: React.FC = () => {
         const dataUrl = evt.target?.result as string;
         if (!dataUrl) return;
 
-        const newOverlay: PlacedImageOverlay = {
-          id: 'img-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
-          pageNumber: applyToAllPages ? -1 : currentPage,
-          fileName: file.name,
-          dataUrl,
-          mimeType: mime,
-          widthPct: defaultWidthPct,
-          heightPct: defaultHeightPct,
-          xPct: 35, // Centered default X
-          yPct: 35, // Centered default Y
-          opacity: defaultOpacity
-        };
+        // Calculate Natural Aspect Ratio of uploaded image
+        const imgObj = new Image();
+        imgObj.src = dataUrl;
+        imgObj.onload = () => {
+          const naturalW = imgObj.naturalWidth || 200;
+          const naturalH = imgObj.naturalHeight || 200;
+          const aspectRatio = naturalW / naturalH;
 
-        setImageOverlays((prev) => [...prev, newOverlay]);
-        setSelectedImageId(newOverlay.id);
+          // Default initial width % (25% of page width)
+          const widthPct = 25;
+          // Calculate initial height % using page aspect ratio estimate or aspect ratio
+          const heightPct = Math.round(widthPct / aspectRatio);
+
+          const newOverlay: PlacedImageOverlay = {
+            id: 'img-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
+            pageNumber: currentPage,
+            fileName: file.name,
+            dataUrl,
+            mimeType: mime,
+            widthPct,
+            heightPct,
+            aspectRatio,
+            xPct: 35, // Centered default X
+            yPct: 35, // Centered default Y
+            opacity: 1.0
+          };
+
+          setImageOverlays((prev) => [...prev, newOverlay]);
+          setSelectedImageId(newOverlay.id);
+        };
       };
 
       reader.readAsDataURL(file);
@@ -195,7 +205,7 @@ export const PdfEditor: React.FC = () => {
     window.addEventListener('mouseup', onMouseUp);
   };
 
-  // Handle Interactive Corner Drag Resizing (SE, SW, NE, NW)
+  // Handle Interactive Corner Drag Resizing (SE, SW, NE, NW) Preserving Aspect Ratio
   const handleImageResizeStart = (
     e: React.MouseEvent,
     imgId: string,
@@ -214,7 +224,6 @@ export const PdfEditor: React.FC = () => {
     if (!img) return;
 
     const startW = img.widthPct;
-    const startH = img.heightPct;
     const startXPct = img.xPct;
     const startYPct = img.yPct;
 
@@ -230,32 +239,23 @@ export const PdfEditor: React.FC = () => {
           if (item.id !== imgId) return item;
 
           let newW = startW;
-          let newH = startH;
           let newX = startXPct;
           let newY = startYPct;
 
-          if (corner === 'se') {
+          if (corner === 'se' || corner === 'ne') {
             newW = Math.max(5, Math.min(95, startW + dxPct));
-            newH = Math.max(5, Math.min(95, startH + dyPct));
-          } else if (corner === 'sw') {
+          } else {
             newW = Math.max(5, Math.min(95, startW - dxPct));
-            newH = Math.max(5, Math.min(95, startH + dyPct));
             newX = Math.max(0, Math.min(95, startXPct + dxPct));
-          } else if (corner === 'ne') {
-            newW = Math.max(5, Math.min(95, startW + dxPct));
-            newH = Math.max(5, Math.min(95, startH - dyPct));
-            newY = Math.max(0, Math.min(95, startYPct + dyPct));
-          } else if (corner === 'nw') {
-            newW = Math.max(5, Math.min(95, startW - dxPct));
-            newH = Math.max(5, Math.min(95, startH - dyPct));
-            newX = Math.max(0, Math.min(95, startXPct + dxPct));
+          }
+
+          if (corner === 'nw' || corner === 'ne') {
             newY = Math.max(0, Math.min(95, startYPct + dyPct));
           }
 
           return {
             ...item,
             widthPct: Math.round(newW),
-            heightPct: Math.round(newH),
             xPct: Math.round(newX),
             yPct: Math.round(newY)
           };
@@ -278,7 +278,7 @@ export const PdfEditor: React.FC = () => {
     if (selectedImageId === id) setSelectedImageId(null);
   };
 
-  // Export PDF with Embedded Images
+  // Export PDF with 100% Pixel-Perfect Aspect-Ratio and Alignment Matching
   const handleExportPdf = async () => {
     if (!arrayBuffer || !pdfFile) return;
 
@@ -332,18 +332,26 @@ export const PdfEditor: React.FC = () => {
           const page = pages[pageIdx];
           const { width, height } = page.getSize();
 
-          const imgWidth = (imgOverlay.widthPct / 100) * width;
-          const imgHeight = (imgOverlay.heightPct / 100) * height;
+          // EXACT MATCH MATH:
+          // 1. Calculate actual width in PDF points based on user chosen widthPct %
+          const actualW = (imgOverlay.widthPct / 100) * width;
 
-          // Convert Top-Left percentage origin to pdf-lib Bottom-Left origin
+          // 2. Use natural image aspect ratio so image NEVER stretches or distorts
+          const imgAspect = embeddedImage.width / embeddedImage.height;
+          const actualH = actualW / imgAspect;
+
+          // 3. Convert Top-Left percentage origin to pdf-lib Bottom-Left origin:
+          // Top edge Y of image in PDF coordinates: height - ((yPct / 100) * height)
+          // Bottom-Left origin Y: topEdgeY - actualH
           const pdfX = (imgOverlay.xPct / 100) * width;
-          const pdfY = height - ((imgOverlay.yPct / 100) * height) - imgHeight;
+          const topY = height - ((imgOverlay.yPct / 100) * height);
+          const pdfY = topY - actualH;
 
           page.drawImage(embeddedImage, {
             x: Math.max(0, pdfX),
             y: Math.max(0, pdfY),
-            width: imgWidth,
-            height: imgHeight,
+            width: actualW,
+            height: actualH,
             opacity: imgOverlay.opacity ?? 1.0
           });
         }
@@ -499,7 +507,7 @@ export const PdfEditor: React.FC = () => {
                         left: `${img.xPct}%`,
                         top: `${img.yPct}%`,
                         width: `${img.widthPct}%`,
-                        height: `${img.heightPct}%`,
+                        aspectRatio: `${img.aspectRatio}`,
                         opacity: img.opacity
                       }}
                       className={`absolute z-10 p-0.5 rounded border-2 border-dashed transition-all cursor-grab active:cursor-grabbing group ${
@@ -511,7 +519,7 @@ export const PdfEditor: React.FC = () => {
                       <img
                         src={img.dataUrl}
                         alt="Overlay"
-                        className="w-full h-full object-contain block pointer-events-none select-none"
+                        className="w-full h-full object-fill block pointer-events-none select-none"
                       />
 
                       {/* Move Handle Badge */}
@@ -634,46 +642,31 @@ export const PdfEditor: React.FC = () => {
                     </select>
                   </div>
 
-                  {/* Width & Height Sliders */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <span className="text-[10px] text-slate-400">Width: {selectedOverlay.widthPct}%</span>
-                      <input
-                        type="range"
-                        min={5}
-                        max={95}
-                        value={selectedOverlay.widthPct}
-                        onChange={(e) => {
-                          const val = Number(e.target.value);
-                          setImageOverlays((prev) =>
-                            prev.map((i) => (i.id === selectedOverlay.id ? { ...i, widthPct: val } : i))
-                          );
-                        }}
-                        className="w-full accent-brand-500"
-                      />
-                    </div>
-
-                    <div>
-                      <span className="text-[10px] text-slate-400">Height: {selectedOverlay.heightPct}%</span>
-                      <input
-                        type="range"
-                        min={5}
-                        max={95}
-                        value={selectedOverlay.heightPct}
-                        onChange={(e) => {
-                          const val = Number(e.target.value);
-                          setImageOverlays((prev) =>
-                            prev.map((i) => (i.id === selectedOverlay.id ? { ...i, heightPct: val } : i))
-                          );
-                        }}
-                        className="w-full accent-brand-500"
-                      />
-                    </div>
+                  {/* Width Slider (Height automatically follows natural aspect ratio) */}
+                  <div>
+                    <span className="text-[10px] text-slate-400 block mb-1">
+                      Image Scale / Width: {selectedOverlay.widthPct}% of Page Width
+                    </span>
+                    <input
+                      type="range"
+                      min={5}
+                      max={95}
+                      value={selectedOverlay.widthPct}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setImageOverlays((prev) =>
+                          prev.map((i) => (i.id === selectedOverlay.id ? { ...i, widthPct: val } : i))
+                        );
+                      }}
+                      className="w-full accent-brand-500"
+                    />
                   </div>
 
                   {/* Opacity Slider */}
                   <div>
-                    <span className="text-[10px] text-slate-400">Opacity / Transparency: {Math.round(selectedOverlay.opacity * 100)}%</span>
+                    <span className="text-[10px] text-slate-400 block mb-1">
+                      Opacity / Transparency: {Math.round(selectedOverlay.opacity * 100)}%
+                    </span>
                     <input
                       type="range"
                       min={0.1}
