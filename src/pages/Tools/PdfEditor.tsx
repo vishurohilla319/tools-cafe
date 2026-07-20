@@ -28,7 +28,7 @@ export interface PlacedImageOverlay {
   dataUrl: string;
   mimeType: 'image/png' | 'image/jpeg';
   widthPct: number; // % of page width
-  heightPct: number; // % of page height (derived or calculated)
+  heightPct: number; // % of page height (derived from aspect ratio)
   aspectRatio: number; // naturalWidth / naturalHeight
   xPct: number; // % from left of page
   yPct: number; // % from top of page
@@ -134,7 +134,6 @@ export const PdfEditor: React.FC = () => {
 
           // Default initial width % (25% of page width)
           const widthPct = 25;
-          // Calculate initial height % using page aspect ratio estimate or aspect ratio
           const heightPct = Math.round(widthPct / aspectRatio);
 
           const newOverlay: PlacedImageOverlay = {
@@ -205,7 +204,7 @@ export const PdfEditor: React.FC = () => {
     window.addEventListener('mouseup', onMouseUp);
   };
 
-  // Handle Interactive Corner Drag Resizing (SE, SW, NE, NW) Preserving Aspect Ratio
+  // Handle Interactive Corner Drag Resizing Preserving Exact Aspect Ratio & Position
   const handleImageResizeStart = (
     e: React.MouseEvent,
     imgId: string,
@@ -242,20 +241,30 @@ export const PdfEditor: React.FC = () => {
           let newX = startXPct;
           let newY = startYPct;
 
-          if (corner === 'se' || corner === 'ne') {
+          if (corner === 'se') {
             newW = Math.max(5, Math.min(95, startW + dxPct));
-          } else {
+          } else if (corner === 'sw') {
             newW = Math.max(5, Math.min(95, startW - dxPct));
-            newX = Math.max(0, Math.min(95, startXPct + dxPct));
+            newX = Math.max(0, Math.min(95, startXPct + (startW - newW)));
+          } else if (corner === 'ne') {
+            newW = Math.max(5, Math.min(95, startW + dxPct));
+            const newH = newW / img.aspectRatio;
+            const startH = startW / img.aspectRatio;
+            newY = Math.max(0, Math.min(95, startYPct - (newH - startH)));
+          } else if (corner === 'nw') {
+            newW = Math.max(5, Math.min(95, startW - dxPct));
+            newX = Math.max(0, Math.min(95, startXPct + (startW - newW)));
+            const newH = newW / img.aspectRatio;
+            const startH = startW / img.aspectRatio;
+            newY = Math.max(0, Math.min(95, startYPct - (newH - startH)));
           }
 
-          if (corner === 'nw' || corner === 'ne') {
-            newY = Math.max(0, Math.min(95, startYPct + dyPct));
-          }
+          const roundedW = Math.round(newW);
 
           return {
             ...item,
-            widthPct: Math.round(newW),
+            widthPct: roundedW,
+            heightPct: Math.round(roundedW / item.aspectRatio),
             xPct: Math.round(newX),
             yPct: Math.round(newY)
           };
@@ -330,7 +339,13 @@ export const PdfEditor: React.FC = () => {
         // Draw image on target pages
         for (const pageIdx of targetPageIndices) {
           const page = pages[pageIdx];
-          const { width, height } = page.getSize();
+          const rawSize = page.getSize();
+          const rotation = (page.getRotation().angle || 0) % 360;
+
+          // Account for PDF page rotation if present
+          const isRotated = rotation === 90 || rotation === 270;
+          const width = isRotated ? rawSize.height : rawSize.width;
+          const height = isRotated ? rawSize.width : rawSize.height;
 
           // EXACT MATCH MATH:
           // 1. Calculate actual width in PDF points based on user chosen widthPct %
@@ -341,8 +356,6 @@ export const PdfEditor: React.FC = () => {
           const actualH = actualW / imgAspect;
 
           // 3. Convert Top-Left percentage origin to pdf-lib Bottom-Left origin:
-          // Top edge Y of image in PDF coordinates: height - ((yPct / 100) * height)
-          // Bottom-Left origin Y: topEdgeY - actualH
           const pdfX = (imgOverlay.xPct / 100) * width;
           const topY = height - ((imgOverlay.yPct / 100) * height);
           const pdfY = topY - actualH;
@@ -489,10 +502,10 @@ export const PdfEditor: React.FC = () => {
                 </div>
               )}
 
-              <div className="relative shadow-2xl rounded bg-white inline-block select-none">
+              <div className="relative shadow-2xl rounded bg-white inline-block select-none leading-none">
                 <canvas ref={canvasRef} className="block rounded max-w-full" />
 
-                {/* Render Placed Image Overlays for Current Page */}
+                {/* Render Placed Image Overlays with 100% Zero-Padding Box Alignment */}
                 {imageOverlays
                   .filter((img) => img.pageNumber === currentPage || img.pageNumber === -1)
                   .map((img) => (
@@ -510,10 +523,10 @@ export const PdfEditor: React.FC = () => {
                         aspectRatio: `${img.aspectRatio}`,
                         opacity: img.opacity
                       }}
-                      className={`absolute z-10 p-0.5 rounded border-2 border-dashed transition-all cursor-grab active:cursor-grabbing group ${
+                      className={`absolute z-10 transition-all cursor-grab active:cursor-grabbing group ${
                         selectedImageId === img.id
-                          ? 'border-brand-600 ring-4 ring-brand-500/30 shadow-2xl'
-                          : 'border-slate-400 hover:border-brand-500'
+                          ? 'outline-2 outline-dashed outline-brand-600 ring-4 ring-brand-500/30 shadow-2xl'
+                          : 'hover:outline-2 hover:outline-dashed hover:outline-brand-500'
                       }`}
                     >
                       <img
@@ -655,7 +668,15 @@ export const PdfEditor: React.FC = () => {
                       onChange={(e) => {
                         const val = Number(e.target.value);
                         setImageOverlays((prev) =>
-                          prev.map((i) => (i.id === selectedOverlay.id ? { ...i, widthPct: val } : i))
+                          prev.map((i) =>
+                            i.id === selectedOverlay.id
+                              ? {
+                                  ...i,
+                                  widthPct: val,
+                                  heightPct: Math.round(val / i.aspectRatio)
+                                }
+                              : i
+                          )
                         );
                       }}
                       className="w-full accent-brand-500"
