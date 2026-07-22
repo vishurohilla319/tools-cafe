@@ -67,6 +67,8 @@ export const translations: Record<Language, Record<string, string>> = {
     'tool.pdfToJpg.desc': 'Convert PDF pages into high-quality JPG or PNG images directly in your browser.',
     'tool.pdfEditor.title': 'Add Image into PDF',
     'tool.pdfEditor.desc': 'Insert and overlay logos, signatures, stamps, and photos directly into any PDF document with instant positioning & resizing.',
+    'tool.compressPdf.title': 'PDF Compressor',
+    'tool.compressPdf.desc': 'Compress PDF documents to a smaller size in KB/MB with preset or custom compression levels while maintaining visual clarity.',
     'tool.compressImage.title': 'Image Compressor',
     'tool.compressImage.desc': 'Compress JPG, PNG, or WebP images to a targeted size in KB or percentage quality.',
     
@@ -182,6 +184,8 @@ export const translations: Record<Language, Record<string, string>> = {
     'tool.pdfToJpg.desc': 'पीडीएफ पेजों को बिना सर्वर पर भेजे सीधे ब्राउज़र में हाई-क्वालिटी जेपीजी या पीएनजी इमेज में बदलें।',
     'tool.pdfEditor.title': 'पीडीएफ में इमेज जोड़ें (Add Image into PDF)',
     'tool.pdfEditor.desc': 'किसी भी पीडीएफ डॉक्यूमेंट में लोगो, सिग्नेचर, स्टाम्प या फोटो आसानी से जोड़ें और साइज एडजस्ट करें।',
+    'tool.compressPdf.title': 'पीडीएफ कंप्रेसर',
+    'tool.compressPdf.desc': 'पीडीएफ डॉक्यूमेंट्स का साइज़ (केबी या एमबी) कम करें। अपनी ज़रूरत के अनुसार कंप्रेशन लेवल चुनें।',
     'tool.compressImage.title': 'इमेज कंप्रेसर',
     'tool.compressImage.desc': 'जेपीजी, पीएनजी, या वेबपी इमेज का साइज कम करें (केबी या क्वालिटी अनुसार)।',
 

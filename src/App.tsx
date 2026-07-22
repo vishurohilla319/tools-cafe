@@ -19,6 +19,7 @@ import MergeJpgPdf from './pages/Tools/MergeJpgPdf';
 import DeletePdfPages from './pages/Tools/DeletePdfPages';
 import PdfToJpg from './pages/Tools/PdfToJpg';
 import PdfEditor from './pages/Tools/PdfEditor';
+import CompressPdf from './pages/Tools/CompressPdf';
 import ImageCompressor from './pages/Tools/ImageCompressor';
 import PassportPhoto from './pages/Tools/PassportPhoto';
 import DocFormatter from './pages/Tools/DocFormatter';
@@ -88,7 +89,7 @@ export const App: React.FC = () => {
                   <Route path="/tools/reorder-pdf-pages" element={<ComingSoonTool />} />
                   <Route path="/tools/extract-pdf-pages" element={<ComingSoonTool />} />
                   <Route path="/tools/pdf-to-png" element={<ComingSoonTool />} />
-                  <Route path="/tools/compress-pdf" element={<ComingSoonTool />} />
+                  <Route path="/tools/compress-pdf" element={<CompressPdf />} />
                   
                   <Route path="/tools/jpg-to-png" element={<ImageConverter defaultFrom="jpeg" defaultTo="png" />} />
                   <Route path="/tools/png-to-jpg" element={<ImageConverter defaultFrom="png" defaultTo="jpeg" />} />

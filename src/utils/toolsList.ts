@@ -110,6 +110,16 @@ export const toolsList: Tool[] = [
     isClientSide: true
   },
   {
+    id: 'compress-pdf',
+    nameKey: 'tool.compressPdf.title',
+    descKey: 'tool.compressPdf.desc',
+    route: '/tools/compress-pdf',
+    category: 'pdf',
+    icon: 'FileDown',
+    isPopular: true,
+    isClientSide: true
+  },
+  {
     id: 'split-pdf',
     nameKey: 'Split PDF',
     descKey: 'Split PDF into individual files page-by-page.',
