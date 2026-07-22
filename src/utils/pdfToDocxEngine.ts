@@ -241,7 +241,6 @@ export async function convertPdfBufferToDocx(
     }
 
     if (pageNum > 1) {
-      // Add page break marker paragraph for Word 2007 compatibility
       allDocumentChildren.push(
         new Paragraph({
           pageBreakBefore: true,
@@ -380,20 +379,21 @@ function buildDocxTable(tableLines: LineGroup[]): Table | null {
     const maxCols = Math.max(...rawRows.map((r) => r.cellTexts.length));
     if (maxCols < 1) return null;
 
-    const cellWidthPercent = Math.floor(100 / maxCols);
+    const totalWidthDxa = 9000;
+    const colWidthDxa = Math.floor(totalWidthDxa / maxCols);
 
     const rows: TableRow[] = rawRows.map((r) => {
       const cells: TableCell[] = [];
       for (let colIdx = 0; colIdx < maxCols; colIdx++) {
         const text = r.cellTexts[colIdx] || '';
-        cells.push(createTableCell(text, r.rowIndex === 0, cellWidthPercent));
+        cells.push(createTableCell(text, r.rowIndex === 0, colWidthDxa));
       }
       return new TableRow({ children: cells });
     });
 
     return new Table({
       rows,
-      width: { size: 100, type: WidthType.PERCENTAGE },
+      width: { size: totalWidthDxa, type: WidthType.DXA },
     });
   } catch (e) {
     console.warn('Table construction error:', e);
@@ -401,7 +401,7 @@ function buildDocxTable(tableLines: LineGroup[]): Table | null {
   }
 }
 
-function createTableCell(text: string, isHeader: boolean, widthPercent: number): TableCell {
+function createTableCell(text: string, isHeader: boolean, widthDxa: number): TableCell {
   const cleanText = text.trim() || ' ';
   return new TableCell({
     children: [
@@ -416,7 +416,7 @@ function createTableCell(text: string, isHeader: boolean, widthPercent: number):
         ],
       }),
     ],
-    width: { size: widthPercent, type: WidthType.PERCENTAGE },
+    width: { size: widthDxa, type: WidthType.DXA },
     shading: isHeader ? { fill: 'F1F5F9' } : undefined,
   });
 }
