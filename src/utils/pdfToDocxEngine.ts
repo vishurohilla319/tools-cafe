@@ -9,7 +9,6 @@ import {
   TableCell,
   WidthType,
   AlignmentType,
-  ImageRun,
 } from 'docx';
 
 // Worker initialization
@@ -79,7 +78,7 @@ export async function convertPdfBufferToDocx(
 
   for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
     const pageProgress = 10 + Math.round((75 * pageNum) / pageCount);
-    onProgress?.(pageProgress, `Processing page ${pageNum} of ${pageCount} (layout & graphics)...`);
+    onProgress?.(pageProgress, `Analyzing page ${pageNum} of ${pageCount} text & tables...`);
 
     const page = await pdfDoc.getPage(pageNum);
     const viewport = page.getViewport({ scale: 1.5 });
@@ -170,41 +169,6 @@ export async function convertPdfBufferToDocx(
     const pageDocElements: (Paragraph | Table)[] = [];
     const detectedTables: DetectedTable[] = [];
 
-    // Render page snapshot to canvas for visual layout preservation
-    let pageSnapshotRun: ImageRun | null = null;
-    try {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        const renderScale = 1.6;
-        const pageViewport = page.getViewport({ scale: renderScale });
-        canvas.width = pageViewport.width;
-        canvas.height = pageViewport.height;
-
-        await page.render({ canvasContext: ctx, viewport: pageViewport, canvas: canvas as any }).promise;
-
-        const imgDataUrl = canvas.toDataURL('image/png', 0.92);
-        const base64Data = imgDataUrl.split(',')[1];
-        if (base64Data) {
-          const u8Array = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0));
-          const targetWidthPt = 460;
-          const targetHeightPt = Math.round((pageViewport.height / pageViewport.width) * targetWidthPt);
-
-          pageSnapshotRun = new ImageRun({
-            data: u8Array,
-            type: 'png',
-            transformation: {
-              width: targetWidthPt,
-              height: targetHeightPt,
-            },
-          });
-          totalImages++;
-        }
-      }
-    } catch (e) {
-      console.warn('Page canvas snapshot warning:', e);
-    }
-
     // Process Structured Tables and Paragraphs
     let i = 0;
     while (i < lineGroups.length) {
@@ -248,43 +212,29 @@ export async function convertPdfBufferToDocx(
       );
     }
 
-    if (pageSnapshotRun) {
-      allDocumentChildren.push(
-        new Paragraph({
-          children: [pageSnapshotRun],
-          spacing: { after: 200 },
-          alignment: AlignmentType.CENTER,
-        })
-      );
-      
-      if (pageDocElements.length > 0) {
-        allDocumentChildren.push(
-          new Paragraph({
-            children: [
-              new TextRun({
-                text: `--- Page ${pageNum} Text & Tables Layer ---`,
-                bold: true,
-                size: 18,
-                color: '64748B',
-                font: 'Calibri',
-              }),
-            ],
-            spacing: { before: 240, after: 120 },
-            alignment: AlignmentType.CENTER,
-          })
-        );
-      }
-    }
-
     if (pageDocElements.length > 0) {
       allDocumentChildren.push(...pageDocElements);
+    } else {
+      allDocumentChildren.push(
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: `[Page ${pageNum} Content]`,
+              italics: true,
+              font: 'Calibri',
+              size: 20,
+            }),
+          ],
+          spacing: { after: 120 },
+        })
+      );
     }
 
     extractedPagesInfo.push({
       pageNumber: pageNum,
       text: lineGroups.map((g) => g.fullText).join('\n'),
       hasTable: detectedTables.length > 0,
-      imageCount: pageSnapshotRun ? 1 : 0,
+      imageCount: 0,
     });
   }
 
