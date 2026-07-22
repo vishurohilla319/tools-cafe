@@ -8,7 +8,6 @@ import {
   TableRow,
   TableCell,
   WidthType,
-  BorderStyle,
   AlignmentType,
   ImageRun,
 } from 'docx';
@@ -71,7 +70,7 @@ export async function convertPdfBufferToDocx(
   const pdfDoc = await loadingTask.promise;
   const pageCount = pdfDoc.numPages;
 
-  const docSections: any[] = [];
+  const allDocumentChildren: (Paragraph | Table)[] = [];
   const extractedPagesInfo: ConversionResult['extractedPages'] = [];
 
   let totalParagraphs = 0;
@@ -177,7 +176,7 @@ export async function convertPdfBufferToDocx(
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        const renderScale = 1.8;
+        const renderScale = 1.6;
         const pageViewport = page.getViewport({ scale: renderScale });
         canvas.width = pageViewport.width;
         canvas.height = pageViewport.height;
@@ -188,11 +187,11 @@ export async function convertPdfBufferToDocx(
         const base64Data = imgDataUrl.split(',')[1];
         if (base64Data) {
           const u8Array = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0));
-          const targetWidthPt = 480;
+          const targetWidthPt = 460;
           const targetHeightPt = Math.round((pageViewport.height / pageViewport.width) * targetWidthPt);
 
           pageSnapshotRun = new ImageRun({
-            data: u8Array.buffer,
+            data: u8Array,
             type: 'png',
             transformation: {
               width: targetWidthPt,
@@ -241,10 +240,17 @@ export async function convertPdfBufferToDocx(
       i++;
     }
 
-    const finalPageElements: (Paragraph | Table)[] = [];
+    if (pageNum > 1) {
+      // Add page break marker paragraph for Word 2007 compatibility
+      allDocumentChildren.push(
+        new Paragraph({
+          pageBreakBefore: true,
+        })
+      );
+    }
 
     if (pageSnapshotRun) {
-      finalPageElements.push(
+      allDocumentChildren.push(
         new Paragraph({
           children: [pageSnapshotRun],
           spacing: { after: 200 },
@@ -253,11 +259,11 @@ export async function convertPdfBufferToDocx(
       );
       
       if (pageDocElements.length > 0) {
-        finalPageElements.push(
+        allDocumentChildren.push(
           new Paragraph({
             children: [
               new TextRun({
-                text: '--- Editable Document Text & Tables Layer ---',
+                text: `--- Page ${pageNum} Text & Tables Layer ---`,
                 bold: true,
                 size: 18,
                 color: '64748B',
@@ -272,29 +278,8 @@ export async function convertPdfBufferToDocx(
     }
 
     if (pageDocElements.length > 0) {
-      finalPageElements.push(...pageDocElements);
+      allDocumentChildren.push(...pageDocElements);
     }
-
-    docSections.push({
-      properties: {
-        page: {
-          margin: {
-            top: 720, // 0.5 inch margin in twips
-            bottom: 720,
-            left: 720,
-            right: 720,
-          },
-        },
-      },
-      children:
-        finalPageElements.length > 0
-          ? finalPageElements
-          : [
-              new Paragraph({
-                children: [new TextRun({ text: '[Empty Page Content]', italics: true })],
-              }),
-            ],
-    });
 
     extractedPagesInfo.push({
       pageNumber: pageNum,
@@ -307,7 +292,30 @@ export async function convertPdfBufferToDocx(
   onProgress?.(88, 'Building OpenXML DOCX structure with exact page layouts & tables...');
 
   const doc = new Document({
-    sections: docSections,
+    creator: 'Tools Cafe Engine',
+    description: 'Converted PDF Document',
+    sections: [
+      {
+        properties: {
+          page: {
+            margin: {
+              top: 720,
+              bottom: 720,
+              left: 720,
+              right: 720,
+            },
+          },
+        },
+        children:
+          allDocumentChildren.length > 0
+            ? allDocumentChildren
+            : [
+                new Paragraph({
+                  children: [new TextRun({ text: '[Document Content Empty]', font: 'Calibri' })],
+                }),
+              ],
+      },
+    ],
   });
 
   onProgress?.(96, 'Packing DOCX document...');
@@ -351,7 +359,7 @@ function buildDocxTable(tableLines: LineGroup[]): Table | null {
           const prevItem = line.items[itemIdx - 1];
           const gap = item.x - (prevItem.x + prevItem.width);
           if (gap > 25) {
-            cellTexts.push(currentCellText.trim());
+            if (currentCellText.trim()) cellTexts.push(currentCellText.trim());
             currentCellText = item.str;
             return;
           }
@@ -359,7 +367,7 @@ function buildDocxTable(tableLines: LineGroup[]): Table | null {
         currentCellText += (currentCellText && !currentCellText.endsWith(' ') ? ' ' : '') + item.str;
       });
 
-      if (currentCellText) {
+      if (currentCellText.trim()) {
         cellTexts.push(currentCellText.trim());
       }
 
@@ -372,11 +380,13 @@ function buildDocxTable(tableLines: LineGroup[]): Table | null {
     const maxCols = Math.max(...rawRows.map((r) => r.cellTexts.length));
     if (maxCols < 1) return null;
 
+    const cellWidthPercent = Math.floor(100 / maxCols);
+
     const rows: TableRow[] = rawRows.map((r) => {
       const cells: TableCell[] = [];
       for (let colIdx = 0; colIdx < maxCols; colIdx++) {
         const text = r.cellTexts[colIdx] || '';
-        cells.push(createTableCell(text, r.rowIndex === 0));
+        cells.push(createTableCell(text, r.rowIndex === 0, cellWidthPercent));
       }
       return new TableRow({ children: cells });
     });
@@ -384,14 +394,6 @@ function buildDocxTable(tableLines: LineGroup[]): Table | null {
     return new Table({
       rows,
       width: { size: 100, type: WidthType.PERCENTAGE },
-      borders: {
-        top: { style: BorderStyle.SINGLE, size: 4, color: '94A3B8' },
-        bottom: { style: BorderStyle.SINGLE, size: 4, color: '94A3B8' },
-        left: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
-        right: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
-        insideHorizontal: { style: BorderStyle.SINGLE, size: 2, color: 'CBD5E1' },
-        insideVertical: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
-      },
     });
   } catch (e) {
     console.warn('Table construction error:', e);
@@ -399,13 +401,14 @@ function buildDocxTable(tableLines: LineGroup[]): Table | null {
   }
 }
 
-function createTableCell(text: string, isHeader: boolean): TableCell {
+function createTableCell(text: string, isHeader: boolean, widthPercent: number): TableCell {
+  const cleanText = text.trim() || ' ';
   return new TableCell({
     children: [
       new Paragraph({
         children: [
           new TextRun({
-            text: text.trim(),
+            text: cleanText,
             bold: isHeader,
             size: isHeader ? 22 : 20,
             font: 'Calibri',
@@ -413,6 +416,7 @@ function createTableCell(text: string, isHeader: boolean): TableCell {
         ],
       }),
     ],
+    width: { size: widthPercent, type: WidthType.PERCENTAGE },
     shading: isHeader ? { fill: 'F1F5F9' } : undefined,
   });
 }
@@ -430,7 +434,8 @@ function buildDocxParagraph(line: LineGroup, pageWidth: number): Paragraph | nul
   }
 
   const isBullet = /^[•\-*▪◦]\s*/.test(text);
-  const cleanText = text.replace(/^[•\-*▪◦]\s*/, '').replace(/^\d+[\.\)]\s*/, '');
+  const cleanText = text.replace(/^[•\-*▪◦]\s*/, '').replace(/^\d+[\.\)]\s*/, '').trim();
+  if (!cleanText) return null;
 
   const runs: TextRun[] = [];
 
@@ -447,15 +452,17 @@ function buildDocxParagraph(line: LineGroup, pageWidth: number): Paragraph | nul
       }
     }
 
-    runs.push(
-      new TextRun({
-        text: itemStr,
-        bold: item.isBold || line.isBold || isHeading,
-        italics: item.isItalic || line.isItalic,
-        size: Math.round((item.fontSize || line.fontSize || 11) * 2),
-        font: 'Calibri',
-      })
-    );
+    if (itemStr) {
+      runs.push(
+        new TextRun({
+          text: itemStr,
+          bold: item.isBold || line.isBold || isHeading,
+          italics: item.isItalic || line.isItalic,
+          size: Math.round((item.fontSize || line.fontSize || 11) * 2),
+          font: 'Calibri',
+        })
+      );
+    }
   });
 
   return new Paragraph({
