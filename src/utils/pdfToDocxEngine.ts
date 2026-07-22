@@ -188,8 +188,7 @@ export async function convertPdfBufferToDocx(
         const base64Data = imgDataUrl.split(',')[1];
         if (base64Data) {
           const imageBuffer = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0));
-          // Calculate integer width & height for Word page (500pt max width)
-          const targetWidthPt = 500;
+          const targetWidthPt = 480;
           const targetHeightPt = Math.round((pageViewport.height / pageViewport.width) * targetWidthPt);
 
           pageSnapshotRun = new ImageRun({
@@ -395,19 +394,13 @@ function createTableCell(text: string, isHeader: boolean): TableCell {
           new TextRun({
             text: text.trim(),
             bold: isHeader,
-            size: isHeader ? 22 : 20, // 11pt or 10pt
+            size: isHeader ? 22 : 20,
             font: 'Calibri',
           }),
         ],
       }),
     ],
     shading: isHeader ? { fill: 'F1F5F9' } : undefined,
-    margins: {
-      top: 100,
-      bottom: 100,
-      left: 140,
-      right: 140,
-    },
   });
 }
 
@@ -431,7 +424,7 @@ function buildDocxParagraph(line: LineGroup, pageWidth: number): Paragraph | nul
   line.items.forEach((item, idx) => {
     let itemStr = item.str;
     if (idx === 0) {
-      itemStr = cleanText;
+      itemStr = isBullet ? `• ${cleanText}` : cleanText;
     }
     if (idx < line.items.length - 1) {
       const nextItem = line.items[idx + 1];
@@ -453,9 +446,9 @@ function buildDocxParagraph(line: LineGroup, pageWidth: number): Paragraph | nul
   });
 
   return new Paragraph({
-    children: runs.length > 0 ? runs : [new TextRun({ text: cleanText, font: 'Calibri' })],
+    children: runs.length > 0 ? runs : [new TextRun({ text: isBullet ? `• ${cleanText}` : cleanText, font: 'Calibri' })],
     alignment,
-    bullet: isBullet ? { level: 0 } : undefined,
+    indent: isBullet ? { left: 360 } : undefined,
     spacing: {
       after: isHeading ? 180 : 120,
       line: 276,
