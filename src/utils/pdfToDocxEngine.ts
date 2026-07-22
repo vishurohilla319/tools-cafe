@@ -10,7 +10,6 @@ import {
   WidthType,
   BorderStyle,
   AlignmentType,
-  HeadingLevel,
   ImageRun,
 } from 'docx';
 
@@ -97,7 +96,6 @@ export async function convertPdfBufferToDocx(
 
       const tx = item.transform;
       const x = tx[4];
-      // Convert PDF Y-coordinate (origin at bottom-left) to Top-Down
       const y = viewport.height - tx[5];
       const fontSize = Math.abs(tx[0]) || item.height || 12;
       const fontName = item.fontName || '';
@@ -173,7 +171,7 @@ export async function convertPdfBufferToDocx(
     const pageDocElements: (Paragraph | Table)[] = [];
     const detectedTables: DetectedTable[] = [];
 
-    // Render page snapshot to canvas to guarantee 100% visual layout & graphic preservation
+    // Render page snapshot to canvas for visual layout preservation
     let pageSnapshotRun: ImageRun | null = null;
     try {
       const canvas = document.createElement('canvas');
@@ -190,9 +188,9 @@ export async function convertPdfBufferToDocx(
         const base64Data = imgDataUrl.split(',')[1];
         if (base64Data) {
           const imageBuffer = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0));
-          // Calculate proportional width & height for Word page (550pt width)
-          const targetWidthPt = 540;
-          const targetHeightPt = (pageViewport.height / pageViewport.width) * targetWidthPt;
+          // Calculate integer width & height for Word page (500pt max width)
+          const targetWidthPt = 500;
+          const targetHeightPt = Math.round((pageViewport.height / pageViewport.width) * targetWidthPt);
 
           pageSnapshotRun = new ImageRun({
             data: imageBuffer,
@@ -244,10 +242,8 @@ export async function convertPdfBufferToDocx(
       i++;
     }
 
-    // Combine elements into page section
     const finalPageElements: (Paragraph | Table)[] = [];
 
-    // If page is scanned / layout heavy or has canvas snapshot, add visual snapshot element header
     if (pageSnapshotRun) {
       finalPageElements.push(
         new Paragraph({
@@ -257,7 +253,6 @@ export async function convertPdfBufferToDocx(
         })
       );
       
-      // Page break marker or editable text section heading
       if (pageDocElements.length > 0) {
         finalPageElements.push(
           new Paragraph({
@@ -277,7 +272,6 @@ export async function convertPdfBufferToDocx(
       }
     }
 
-    // Append structured text & table elements
     if (pageDocElements.length > 0) {
       finalPageElements.push(...pageDocElements);
     }
@@ -286,7 +280,7 @@ export async function convertPdfBufferToDocx(
       properties: {
         page: {
           margin: {
-            top: 576, // 0.4 inch margin
+            top: 576, // 0.4 inch margin in twips
             bottom: 576,
             left: 576,
             right: 576,
@@ -381,10 +375,10 @@ function buildDocxTable(tableLines: LineGroup[]): Table | null {
       borders: {
         top: { style: BorderStyle.SINGLE, size: 4, color: '94A3B8' },
         bottom: { style: BorderStyle.SINGLE, size: 4, color: '94A3B8' },
-        left: { style: BorderStyle.NONE, size: 0, color: 'AUTO' },
-        right: { style: BorderStyle.NONE, size: 0, color: 'AUTO' },
+        left: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+        right: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
         insideHorizontal: { style: BorderStyle.SINGLE, size: 2, color: 'CBD5E1' },
-        insideVertical: { style: BorderStyle.NONE, size: 0, color: 'AUTO' },
+        insideVertical: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
       },
     });
   } catch (e) {
@@ -421,14 +415,7 @@ function buildDocxParagraph(line: LineGroup, pageWidth: number): Paragraph | nul
   const text = line.fullText.trim();
   if (!text) return null;
 
-  let headingLevel: any = undefined;
-  if (line.fontSize > 18) {
-    headingLevel = HeadingLevel.HEADING_1;
-  } else if (line.fontSize > 14 && line.isBold) {
-    headingLevel = HeadingLevel.HEADING_2;
-  } else if (line.fontSize > 12 && line.isBold && text.length < 60) {
-    headingLevel = HeadingLevel.HEADING_3;
-  }
+  const isHeading = line.fontSize > 14 || (line.fontSize > 12 && line.isBold && text.length < 60);
 
   const firstItemX = line.items[0]?.x || 0;
   let alignment: any = AlignmentType.LEFT;
@@ -457,7 +444,7 @@ function buildDocxParagraph(line: LineGroup, pageWidth: number): Paragraph | nul
     runs.push(
       new TextRun({
         text: itemStr,
-        bold: item.isBold || line.isBold,
+        bold: item.isBold || line.isBold || isHeading,
         italics: item.isItalic || line.isItalic,
         size: Math.round((item.fontSize || line.fontSize || 11) * 2),
         font: 'Calibri',
@@ -467,11 +454,10 @@ function buildDocxParagraph(line: LineGroup, pageWidth: number): Paragraph | nul
 
   return new Paragraph({
     children: runs.length > 0 ? runs : [new TextRun({ text: cleanText, font: 'Calibri' })],
-    heading: headingLevel,
     alignment,
     bullet: isBullet ? { level: 0 } : undefined,
     spacing: {
-      after: headingLevel ? 180 : 120,
+      after: isHeading ? 180 : 120,
       line: 276,
     },
   });
