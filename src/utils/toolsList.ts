@@ -30,16 +30,6 @@ export const categoriesList: Category[] = [
 export const toolsList: Tool[] = [
   // PDF Tools
   {
-    id: 'pdf-to-word',
-    nameKey: 'tool.pdfToWord.title',
-    descKey: 'tool.pdfToWord.desc',
-    route: '/tools/pdf-to-word',
-    category: 'pdf',
-    icon: 'FileText',
-    isPopular: true,
-    isClientSide: true
-  },
-  {
     id: 'jpg-to-pdf',
     nameKey: 'tool.jpgToPdf.title',
     descKey: 'tool.jpgToPdf.desc',

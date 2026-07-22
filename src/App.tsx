@@ -34,7 +34,6 @@ import ComingSoonTool from './pages/Tools/ComingSoonTool';
 
 // New PDF Conversion Tools
 import WordToPdf from './pages/Tools/WordToPdf';
-import PdfToWord from './pages/Tools/PdfToWord';
 
 // New Image Resizing/Cropping Tools
 import ImageResizer from './pages/Tools/ImageResizer';
@@ -79,7 +78,7 @@ export const App: React.FC = () => {
                   <Route path="/tools/excel-to-pdf" element={<ComingSoonTool />} />
                   <Route path="/tools/pdf-to-excel" element={<ComingSoonTool />} />
                   <Route path="/tools/word-to-pdf" element={<WordToPdf />} />
-                  <Route path="/tools/pdf-to-word" element={<PdfToWord />} />
+                  <Route path="/tools/pdf-to-word" element={<ComingSoonTool />} />
                   <Route path="/tools/ppt-to-pdf" element={<ComingSoonTool />} />
                   <Route path="/tools/pdf-to-ppt" element={<ComingSoonTool />} />
 
