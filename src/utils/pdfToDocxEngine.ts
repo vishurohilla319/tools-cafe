@@ -187,12 +187,12 @@ export async function convertPdfBufferToDocx(
         const imgDataUrl = canvas.toDataURL('image/png', 0.92);
         const base64Data = imgDataUrl.split(',')[1];
         if (base64Data) {
-          const imageBuffer = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0));
+          const u8Array = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0));
           const targetWidthPt = 480;
           const targetHeightPt = Math.round((pageViewport.height / pageViewport.width) * targetWidthPt);
 
           pageSnapshotRun = new ImageRun({
-            data: imageBuffer,
+            data: u8Array.buffer,
             type: 'png',
             transformation: {
               width: targetWidthPt,
@@ -279,10 +279,10 @@ export async function convertPdfBufferToDocx(
       properties: {
         page: {
           margin: {
-            top: 576, // 0.4 inch margin in twips
-            bottom: 576,
-            left: 576,
-            right: 576,
+            top: 720, // 0.5 inch margin in twips
+            bottom: 720,
+            left: 720,
+            right: 720,
           },
         },
       },
@@ -342,8 +342,8 @@ function isTableRowCandidate(line: LineGroup): boolean {
 
 function buildDocxTable(tableLines: LineGroup[]): Table | null {
   try {
-    const rows: TableRow[] = tableLines.map((line, rowIndex) => {
-      const cells: TableCell[] = [];
+    const rawRows = tableLines.map((line, rowIndex) => {
+      const cellTexts: string[] = [];
       let currentCellText = '';
 
       line.items.forEach((item, itemIdx) => {
@@ -351,7 +351,7 @@ function buildDocxTable(tableLines: LineGroup[]): Table | null {
           const prevItem = line.items[itemIdx - 1];
           const gap = item.x - (prevItem.x + prevItem.width);
           if (gap > 25) {
-            cells.push(createTableCell(currentCellText, rowIndex === 0));
+            cellTexts.push(currentCellText.trim());
             currentCellText = item.str;
             return;
           }
@@ -360,12 +360,25 @@ function buildDocxTable(tableLines: LineGroup[]): Table | null {
       });
 
       if (currentCellText) {
-        cells.push(createTableCell(currentCellText, rowIndex === 0));
+        cellTexts.push(currentCellText.trim());
       }
 
-      return new TableRow({
-        children: cells.length > 0 ? cells : [createTableCell(line.fullText, false)],
-      });
+      return {
+        rowIndex,
+        cellTexts: cellTexts.length > 0 ? cellTexts : [line.fullText.trim()],
+      };
+    });
+
+    const maxCols = Math.max(...rawRows.map((r) => r.cellTexts.length));
+    if (maxCols < 1) return null;
+
+    const rows: TableRow[] = rawRows.map((r) => {
+      const cells: TableCell[] = [];
+      for (let colIdx = 0; colIdx < maxCols; colIdx++) {
+        const text = r.cellTexts[colIdx] || '';
+        cells.push(createTableCell(text, r.rowIndex === 0));
+      }
+      return new TableRow({ children: cells });
     });
 
     return new Table({
@@ -448,10 +461,9 @@ function buildDocxParagraph(line: LineGroup, pageWidth: number): Paragraph | nul
   return new Paragraph({
     children: runs.length > 0 ? runs : [new TextRun({ text: isBullet ? `• ${cleanText}` : cleanText, font: 'Calibri' })],
     alignment,
-    indent: isBullet ? { left: 360 } : undefined,
     spacing: {
       after: isHeading ? 180 : 120,
-      line: 276,
+      line: 240,
     },
   });
 }
