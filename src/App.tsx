@@ -15,6 +15,7 @@ import Admin from './pages/Admin';
 // Core tools
 import JpgToPdf from './pages/Tools/JpgToPdf';
 import MergePdf from './pages/Tools/MergePdf';
+import MergeJpgPdf from './pages/Tools/MergeJpgPdf';
 import DeletePdfPages from './pages/Tools/DeletePdfPages';
 import PdfToJpg from './pages/Tools/PdfToJpg';
 import PdfEditor from './pages/Tools/PdfEditor';
@@ -32,6 +33,7 @@ import ComingSoonTool from './pages/Tools/ComingSoonTool';
 
 // New PDF Conversion Tools
 import WordToPdf from './pages/Tools/WordToPdf';
+import PdfToWord from './pages/Tools/PdfToWord';
 
 // New Image Resizing/Cropping Tools
 import ImageResizer from './pages/Tools/ImageResizer';
@@ -64,6 +66,7 @@ export const App: React.FC = () => {
                   <Route path="/tools/jpg-to-pdf" element={<JpgToPdf />} />
                   <Route path="/tools/png-to-pdf" element={<JpgToPdf />} />
                   <Route path="/tools/merge-pdf" element={<MergePdf />} />
+                  <Route path="/tools/merge-jpg-pdf" element={<MergeJpgPdf />} />
                   <Route path="/tools/delete-pdf-pages" element={<DeletePdfPages />} />
                   <Route path="/tools/pdf-to-jpg" element={<PdfToJpg />} />
                   <Route path="/tools/pdf-editor" element={<PdfEditor />} />
@@ -75,7 +78,7 @@ export const App: React.FC = () => {
                   <Route path="/tools/excel-to-pdf" element={<ComingSoonTool />} />
                   <Route path="/tools/pdf-to-excel" element={<ComingSoonTool />} />
                   <Route path="/tools/word-to-pdf" element={<WordToPdf />} />
-                  <Route path="/tools/pdf-to-word" element={<ComingSoonTool />} />
+                  <Route path="/tools/pdf-to-word" element={<PdfToWord />} />
                   <Route path="/tools/ppt-to-pdf" element={<ComingSoonTool />} />
                   <Route path="/tools/pdf-to-ppt" element={<ComingSoonTool />} />
 

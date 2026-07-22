@@ -12,6 +12,7 @@
   "dependencies": {
     "@imgly/background-removal": "^1.7.0",
     "browser-image-compression": "^2.0.2",
+    "docx": "^9.7.1",
     "docx-preview": "^0.4.0",
     "html2canvas": "^1.4.1",
     "html2pdf.js": "^0.14.0",

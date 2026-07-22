@@ -105,7 +105,7 @@ export const DeletePdfPages: React.FC = () => {
     setLoadingText('Rebuilding PDF...');
 
     try {
-      const srcDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+      const srcDoc = await PDFDocument.load(arrayBuffer);
       const newDoc = await PDFDocument.create();
       
       const indicesToKeep: number[] = [];

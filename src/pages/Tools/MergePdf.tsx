@@ -31,7 +31,7 @@ export const MergePdf: React.FC = () => {
       const file = files[i];
       try {
         const arrayBuffer = await file.arrayBuffer();
-        const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+        const pdfDoc = await PDFDocument.load(arrayBuffer);
         const pageCount = pdfDoc.getPageCount();
 
         newFiles.push({
@@ -88,7 +88,15 @@ export const MergePdf: React.FC = () => {
         const arrayBuffer = await pdfFile.file.arrayBuffer();
         
         // Load target PDF document
-        const srcPdf = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+        const srcPdf = await PDFDocument.load(arrayBuffer);
+        
+        // Flatten forms to prevent duplicate field name conflicts or empty appearance streams
+        try {
+          const form = srcPdf.getForm();
+          form.flatten();
+        } catch (e) {
+          // Ignore if form doesn't exist or cannot be flattened
+        }
         
         // Get pages
         const copiedPages = await mergedPdf.copyPages(srcPdf, srcPdf.getPageIndices());
@@ -99,7 +107,7 @@ export const MergePdf: React.FC = () => {
         setProgress(Math.round(10 + (80 * (i + 1)) / pdfFiles.length));
       }
 
-      const pdfBytes = await mergedPdf.save();
+      const pdfBytes = await mergedPdf.save({ updateFieldAppearances: true });
       const blob = new Blob([pdfBytes as any], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
       setMergedBlobUrl(url);
