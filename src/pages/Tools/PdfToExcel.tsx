@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 // @ts-ignore
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
@@ -16,7 +16,6 @@ import {
   Check, 
   Grid, 
   Sliders, 
-  Sparkles,
   FileCode,
   Table as TableIcon,
   AlertTriangle,
@@ -24,7 +23,8 @@ import {
   Unlock,
   Key,
   Combine,
-  Wand2
+  Wand2,
+  Columns
 } from 'lucide-react';
 import FileUpload from '../../components/shared/FileUpload';
 import ToolHeader from '../../components/shared/ToolHeader';
@@ -39,7 +39,7 @@ interface ExtractedTable {
   rows: string[][];
 }
 
-type ExtractionMode = 'whitespace-gutter' | 'smart-grid' | 'gap-threshold' | 'whitespace';
+type ExtractionMode = 'visual-ruler' | 'whitespace-gutter' | 'smart-grid' | 'gap-threshold';
 
 export const PdfToExcel: React.FC = () => {
   const { t } = useLanguage();
@@ -58,7 +58,7 @@ export const PdfToExcel: React.FC = () => {
   const [isUnlocked, setIsUnlocked] = useState<boolean>(false);
 
   // Advanced Extraction Tuning Options
-  const [extractionMode, setExtractionMode] = useState<ExtractionMode>('whitespace-gutter');
+  const [extractionMode, setExtractionMode] = useState<ExtractionMode>('visual-ruler');
   const [columnThreshold, setColumnThreshold] = useState<number>(12); // Gutter / Gap width
   const [rowTolerance, setRowTolerance] = useState<number>(5); // Line Y tolerance
   const [mergeMultilineRows, setMergeMultilineRows] = useState<boolean>(true); // Merge sub-lines into same row
@@ -67,6 +67,12 @@ export const PdfToExcel: React.FC = () => {
   const [removeEmptyRows, setRemoveEmptyRows] = useState<boolean>(true);
   const [hasHeaderRow, setHasHeaderRow] = useState<boolean>(true);
   const [exportSingleSheet, setExportSingleSheet] = useState<boolean>(true);
+
+  // Interactive Visual Column Ruler lines (percentages 0 - 100%)
+  const [columnRulers, setColumnRulers] = useState<number[]>([15, 45, 58, 68, 78, 88]);
+  const [pageWidthPx, setPageWidthPx] = useState<number>(600);
+  const rulerContainerRef = useRef<HTMLDivElement>(null);
+  const activeRulerIdxRef = useRef<number | null>(null);
 
   // Status & Async States
   const [isProcessing, setIsProcessing] = useState(false);
@@ -121,6 +127,12 @@ export const PdfToExcel: React.FC = () => {
       setIsPasswordRequired(false);
       setPasswordError('');
       setIsUnlocked(true);
+
+      // Auto inspect page 1 viewport width
+      const page1 = await pdf.getPage(1);
+      const vp = page1.getViewport({ scale: 1.0 });
+      setPageWidthPx(vp.width || 600);
+
       return pdf;
     } catch (err: any) {
       if (
@@ -170,7 +182,7 @@ export const PdfToExcel: React.FC = () => {
 
     setIsProcessing(true);
     setProgress(10);
-    setLoadingText('Initializing PDF Layout Engine...');
+    setLoadingText('Initializing Visual Column & Layout Engine...');
     setIsScannedPdf(false);
 
     try {
@@ -192,14 +204,62 @@ export const PdfToExcel: React.FC = () => {
   const cleanRawText = (text: string): string => {
     if (!text) return '';
     return text
-      .replace(/[\x00-\x1F\x7F]/g, '') // remove control chars
-      .replace(/\uFB01/g, 'fi') // replace ligatures
+      .replace(/[\x00-\x1F\x7F]/g, '')
+      .replace(/\uFB01/g, 'fi')
       .replace(/\uFB02/g, 'fl')
-      .replace(/\s+/g, ' '); // normalize spaces
+      .replace(/\s+/g, ' ');
   };
 
   /**
-   * Advanced High-Precision Layout & Gutter Analysis Engine
+   * Interactive Column Ruler Drag & Add Handlers
+   */
+  const addColumnRulerAtPos = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!rulerContainerRef.current) return;
+    const rect = rulerContainerRef.current.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const pct = Math.round((clickX / rect.width) * 100);
+    if (pct > 2 && pct < 98 && !columnRulers.includes(pct)) {
+      setColumnRulers([...columnRulers, pct].sort((a, b) => a - b));
+    }
+  };
+
+  const removeColumnRuler = (idx: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (columnRulers.length <= 1) return;
+    const updated = columnRulers.filter((_, i) => i !== idx);
+    setColumnRulers(updated);
+  };
+
+  const startRulerDrag = (idx: number, e: React.PointerEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    activeRulerIdxRef.current = idx;
+
+    const handlePointerMove = (moveEvt: PointerEvent) => {
+      if (activeRulerIdxRef.current === null || !rulerContainerRef.current) return;
+      const rect = rulerContainerRef.current.getBoundingClientRect();
+      const clickX = moveEvt.clientX - rect.left;
+      const pct = Math.max(2, Math.min(98, Math.round((clickX / rect.width) * 100)));
+
+      setColumnRulers(prev => {
+        const updated = [...prev];
+        updated[activeRulerIdxRef.current!] = pct;
+        return updated.sort((a, b) => a - b);
+      });
+    };
+
+    const handlePointerUp = () => {
+      activeRulerIdxRef.current = null;
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+  };
+
+  /**
+   * Advanced Visual Column Ruler & Layout Extraction Engine
    */
   const runTableExtraction = async (pdf: pdfjsLib.PDFDocumentProxy) => {
     const numPages = pdf.numPages;
@@ -207,11 +267,12 @@ export const PdfToExcel: React.FC = () => {
     let totalTextItemsCount = 0;
 
     for (let pageNum = 1; pageNum <= numPages; pageNum++) {
-      setLoadingText(`Analyzing layout structure on Page ${pageNum} of ${numPages}...`);
+      setLoadingText(`Extracting columns on Page ${pageNum} of ${numPages}...`);
       setProgress(Math.round(10 + (75 * pageNum) / numPages));
 
       const page = await pdf.getPage(pageNum);
       const viewport = page.getViewport({ scale: 1.0 });
+      const currentWidth = viewport.width || pageWidthPx || 600;
       const textContent = await page.getTextContent();
       const items = textContent.items as any[];
       totalTextItemsCount += items.length;
@@ -227,21 +288,23 @@ export const PdfToExcel: React.FC = () => {
         continue;
       }
 
-      // 1. Convert text items to normalized bounding box elements
+      // Convert text items to normalized bounding box elements
       const rawItems = items.filter(it => it.str && (trimWhitespace ? it.str.trim().length > 0 : true)).map(it => {
         const x = it.transform[4];
         const y = it.transform[5];
         const width = Math.max(it.width || 0, 4);
         const height = Math.abs(it.transform[0] || it.transform[3] || 10);
         const cleanedStr = cleanRawText(it.str);
+        const xPct = (x / currentWidth) * 100;
+        const xMidPct = ((x + width / 2) / currentWidth) * 100;
         return {
           str: trimWhitespace ? cleanedStr.trim() : cleanedStr,
           x,
           y,
           width,
           height,
-          xMid: x + width / 2,
-          xEnd: x + width
+          xPct,
+          xMidPct
         };
       });
 
@@ -253,7 +316,7 @@ export const PdfToExcel: React.FC = () => {
         continue;
       }
 
-      // 2. Group items into Row Lines by Y coordinate (PDF Y coordinate is higher at top)
+      // Group items into Row Lines by Y coordinate (PDF Y decreases downwards)
       const rowMap: { [y: number]: typeof rawItems } = {};
 
       rawItems.forEach((item) => {
@@ -272,14 +335,50 @@ export const PdfToExcel: React.FC = () => {
 
       let pageRows: string[][] = [];
 
-      if (extractionMode === 'whitespace-gutter') {
+      if (extractionMode === 'visual-ruler') {
+        // --- VISUAL COLUMN RULER ALGORITHM ---
+        const sortedRulers = [...columnRulers].sort((a, b) => a - b);
+        const numCols = sortedRulers.length + 1;
+
+        sortedYKeys.forEach((yKey) => {
+          const rowItems = rowMap[yKey];
+          rowItems.sort((a, b) => a.x - b.x);
+
+          const rowCells: string[] = new Array(numCols).fill('');
+
+          rowItems.forEach(item => {
+            // Find which column band the item's midpoint falls into
+            let colIdx = 0;
+            for (let r = 0; r < sortedRulers.length; r++) {
+              if (item.xMidPct >= sortedRulers[r]) {
+                colIdx = r + 1;
+              } else {
+                break;
+              }
+            }
+
+            if (rowCells[colIdx]) {
+              rowCells[colIdx] += ' ' + item.str;
+            } else {
+              rowCells[colIdx] = item.str;
+            }
+          });
+
+          let processedCells = rowCells.map(c => trimWhitespace ? c.trim() : c);
+          const isEmptyRow = processedCells.every(c => c === '');
+          if (!isEmptyRow || !removeEmptyRows) {
+            pageRows.push(processedCells);
+          }
+        });
+
+      } else if (extractionMode === 'whitespace-gutter') {
         // --- WHITESPACE GUTTER ALGORITHM ---
-        const pageWidthInt = Math.ceil(viewport.width || 1000);
+        const pageWidthInt = Math.ceil(currentWidth || 1000);
         const coverage = new Uint16Array(pageWidthInt + 1);
 
         rawItems.forEach(item => {
           const start = Math.max(0, Math.floor(item.x));
-          const end = Math.min(pageWidthInt, Math.ceil(item.xEnd));
+          const end = Math.min(pageWidthInt, Math.ceil(item.x + item.width));
           for (let px = start; px <= end; px++) {
             coverage[px] += 1;
           }
@@ -332,13 +431,11 @@ export const PdfToExcel: React.FC = () => {
 
             columnIntervals.forEach((interval, cIdx) => {
               const overlapStart = Math.max(item.x, interval.start);
-              const overlapEnd = Math.min(item.xEnd, interval.end);
+              const overlapEnd = Math.min(item.x + item.width, interval.end);
               const overlap = Math.max(0, overlapEnd - overlapStart);
 
               if (overlap > maxOverlap) {
                 maxOverlap = overlap;
-                bestColIdx = cIdx;
-              } else if (maxOverlap <= 0 && item.xMid >= interval.start && item.xMid <= interval.end) {
                 bestColIdx = cIdx;
               }
             });
@@ -400,7 +497,7 @@ export const PdfToExcel: React.FC = () => {
           }
         });
 
-      } else if (extractionMode === 'gap-threshold') {
+      } else {
         sortedYKeys.forEach((yKey) => {
           const rowItems = rowMap[yKey];
           rowItems.sort((a, b) => a.x - b.x);
@@ -430,16 +527,6 @@ export const PdfToExcel: React.FC = () => {
             rowCells.push(trimWhitespace ? currentCell.trim() : currentCell);
           }
 
-          if (rowCells.length > 0 && (!removeEmptyRows || rowCells.some(c => c !== ''))) {
-            pageRows.push(rowCells);
-          }
-        });
-      } else {
-        sortedYKeys.forEach((yKey) => {
-          const rowItems = rowMap[yKey];
-          rowItems.sort((a, b) => a.x - b.x);
-          const lineStr = rowItems.map(i => i.str).join('  ');
-          const rowCells = lineStr.split(/\s{2,}/).map(s => trimWhitespace ? s.trim() : s);
           if (rowCells.length > 0 && (!removeEmptyRows || rowCells.some(c => c !== ''))) {
             pageRows.push(rowCells);
           }
@@ -589,7 +676,6 @@ export const PdfToExcel: React.FC = () => {
         return row.map((cell) => {
           if (!cell) return '';
           if (autoParseNumbers) {
-            // Strip currency symbols and commas to check if pure number
             const unformatted = cell.replace(/[$₹€,]/g, '').trim();
             if (unformatted !== '' && !isNaN(Number(unformatted)) && !isNaN(parseFloat(unformatted))) {
               return Number(unformatted);
@@ -740,10 +826,10 @@ export const PdfToExcel: React.FC = () => {
           {/* Feature Badges */}
           <div className="mt-8 grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-dark-card text-center">
-              <Sparkles className="w-6 h-6 text-brand-500 mx-auto mb-2" />
-              <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">Whitespace Gutter Engine</h4>
+              <Columns className="w-6 h-6 text-brand-500 mx-auto mb-2" />
+              <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">Interactive Column Rulers</h4>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                Accurately aligns multi-column tables, right-aligned numbers & headers
+                Drag vertical lines to split bank statement columns with 100% precision
               </p>
             </div>
             <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-dark-card text-center">
@@ -889,6 +975,72 @@ export const PdfToExcel: React.FC = () => {
                 Change PDF
               </button>
             </div>
+
+            {/* Interactive Visual Column Ruler Bar */}
+            {extractionMode === 'visual-ruler' && (
+              <div className="p-4 bg-slate-900 text-white rounded-2xl border border-slate-800 space-y-3">
+                <div className="flex justify-between items-center text-xs">
+                  <span className="font-bold flex items-center gap-1.5 text-brand-400">
+                    <Columns size={14} />
+                    <span>Interactive Column Divider Ruler</span>
+                  </span>
+                  <span className="text-[10px] text-slate-400">
+                    Click anywhere on the ruler bar to ADD a column line. Drag lines to move.
+                  </span>
+                </div>
+
+                {/* Ruler Track Bar */}
+                <div 
+                  ref={rulerContainerRef}
+                  onClick={addColumnRulerAtPos}
+                  className="h-12 w-full bg-slate-800/80 rounded-xl relative overflow-hidden cursor-crosshair border border-slate-700 select-none"
+                  title="Click to add vertical column line"
+                >
+                  {/* Ruler Ticks */}
+                  <div className="absolute inset-0 flex justify-between pointer-events-none opacity-20 px-2 text-[9px] font-mono">
+                    <span>0%</span>
+                    <span>25%</span>
+                    <span>50%</span>
+                    <span>75%</span>
+                    <span>100%</span>
+                  </div>
+
+                  {/* Vertical Column Divider Lines */}
+                  {columnRulers.map((pct, idx) => (
+                    <div
+                      key={idx}
+                      style={{ left: `${pct}%` }}
+                      onPointerDown={(e) => startRulerDrag(idx, e)}
+                      className="absolute top-0 bottom-0 w-4 -ml-2 flex flex-col items-center justify-between cursor-ew-resize group z-30 pointer-events-auto"
+                      title={`Column Line ${idx + 1} (${pct}%). Drag to move or click X to remove.`}
+                    >
+                      <div className="w-3 h-3 bg-brand-500 rounded-full border border-white flex items-center justify-center text-[8px] font-bold text-white shadow">
+                        {idx + 1}
+                      </div>
+                      <div className="w-0.5 flex-1 bg-brand-400 group-hover:bg-amber-400 transition-colors" />
+                      <button
+                        onClick={(e) => removeColumnRuler(idx, e)}
+                        className="w-3 h-3 bg-rose-500 hover:bg-rose-600 text-white rounded-full flex items-center justify-center text-[8px] font-bold shadow"
+                        title="Remove Line"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex justify-between items-center text-[11px] text-slate-300 font-semibold pt-1">
+                  <span>Columns Detected: <strong className="text-amber-400">{columnRulers.length + 1} Columns</strong></span>
+                  <button
+                    onClick={extractTables}
+                    className="px-3 py-1 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-lg text-[11px] flex items-center gap-1 transition-all"
+                  >
+                    <RefreshCw size={12} />
+                    <span>Apply Ruler & Re-Analyze</span>
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Scanned PDF Warning Banner */}
             {isScannedPdf && (
@@ -1043,7 +1195,7 @@ export const PdfToExcel: React.FC = () => {
                   <Grid className="w-14 h-14 text-brand-400 mx-auto mb-4 animate-pulse" />
                   <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">Ready to Extract Tables</h4>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm mx-auto">
-                    Click "Analyze & Extract Tables" to run our intelligent vertical column grid parser.
+                    Click "Analyze & Extract Tables" to run our visual column divider engine.
                   </p>
                 </div>
               )
@@ -1068,35 +1220,34 @@ export const PdfToExcel: React.FC = () => {
                   <select
                     value={extractionMode}
                     onChange={(e) => setExtractionMode(e.target.value as ExtractionMode)}
-                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 font-bold text-xs"
+                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 font-bold text-xs text-brand-600 dark:text-brand-400"
                   >
-                    <option value="whitespace-gutter">Whitespace Gutters (Best for Complex PDFs)</option>
+                    <option value="visual-ruler">Interactive Visual Rulers (Recommended for Bank Statements)</option>
+                    <option value="whitespace-gutter">Whitespace Gutters (Auto Column Gaps)</option>
                     <option value="smart-grid">Smart Grid Clustering (Standard Tables)</option>
                     <option value="gap-threshold">Proximity Gap Threshold</option>
-                    <option value="whitespace">Whitespace Separator</option>
                   </select>
                 </div>
 
                 {/* Column Threshold Slider */}
-                <div className="space-y-1.5">
-                  <div className="flex justify-between items-center">
-                    <label>Column Gutter / Gap Sensitivity</label>
-                    <span className="text-[10px] text-brand-600 bg-brand-500/10 px-2 py-0.5 rounded-md font-bold">
-                      {columnThreshold} px
-                    </span>
+                {extractionMode !== 'visual-ruler' && (
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between items-center">
+                      <label>Column Gap Threshold</label>
+                      <span className="text-[10px] text-brand-600 bg-brand-500/10 px-2 py-0.5 rounded-md font-bold">
+                        {columnThreshold} px
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="3"
+                      max="50"
+                      value={columnThreshold}
+                      onChange={(e) => setColumnThreshold(Number(e.target.value))}
+                      className="w-full accent-brand-500 cursor-pointer"
+                    />
                   </div>
-                  <input
-                    type="range"
-                    min="3"
-                    max="50"
-                    value={columnThreshold}
-                    onChange={(e) => setColumnThreshold(Number(e.target.value))}
-                    className="w-full accent-brand-500 cursor-pointer"
-                  />
-                  <p className="text-[10px] text-slate-400 font-normal">
-                    Decrease to split tightly packed columns; increase to merge wider columns.
-                  </p>
-                </div>
+                )}
 
                 {/* Row Tolerance Slider */}
                 <div className="space-y-1.5">
