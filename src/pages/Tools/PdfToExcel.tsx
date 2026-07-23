@@ -3,13 +3,35 @@ import * as pdfjsLib from 'pdfjs-dist';
 // @ts-ignore
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import * as XLSX from 'xlsx';
-import { Download, FileSpreadsheet, RefreshCw, Eye, Settings, HelpCircle } from 'lucide-react';
+import { 
+  Download, 
+  FileSpreadsheet, 
+  RefreshCw, 
+  Eye, 
+  EyeOff,
+  HelpCircle, 
+  Plus, 
+  Trash2, 
+  Copy, 
+  Check, 
+  Grid, 
+  Sliders, 
+  Sparkles,
+  FileCode,
+  Table as TableIcon,
+  AlertTriangle,
+  Lock,
+  Unlock,
+  Key,
+  Combine,
+  Wand2
+} from 'lucide-react';
 import FileUpload from '../../components/shared/FileUpload';
 import ToolHeader from '../../components/shared/ToolHeader';
 import ProgressBar from '../../components/shared/ProgressBar';
 import { useLanguage } from '../../context/LanguageContext';
 
-// Set up worker
+// Set up PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 interface ExtractedTable {
@@ -17,231 +39,620 @@ interface ExtractedTable {
   rows: string[][];
 }
 
+type ExtractionMode = 'whitespace-gutter' | 'smart-grid' | 'gap-threshold' | 'whitespace';
+
 export const PdfToExcel: React.FC = () => {
   const { t } = useLanguage();
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [arrayBuffer, setArrayBuffer] = useState<ArrayBuffer | null>(null);
-  
+  const [totalPages, setTotalPages] = useState<number>(0);
+
   const [tables, setTables] = useState<ExtractedTable[]>([]);
   const [selectedPageIndex, setSelectedPageIndex] = useState<number>(0);
-  const [columnThreshold, setColumnThreshold] = useState<number>(15); // Horizontal space to determine column gap
+  
+  // Password Protection States
+  const [isPasswordRequired, setIsPasswordRequired] = useState<boolean>(false);
+  const [pdfPassword, setPdfPassword] = useState<string>('');
+  const [passwordError, setPasswordError] = useState<string>('');
+  const [showPasswordText, setShowPasswordText] = useState<boolean>(false);
+  const [isUnlocked, setIsUnlocked] = useState<boolean>(false);
 
+  // Advanced Extraction Tuning Options
+  const [extractionMode, setExtractionMode] = useState<ExtractionMode>('whitespace-gutter');
+  const [columnThreshold, setColumnThreshold] = useState<number>(12); // Gutter / Gap width
+  const [rowTolerance, setRowTolerance] = useState<number>(5); // Line Y tolerance
+  const [mergeMultilineRows, setMergeMultilineRows] = useState<boolean>(true); // Merge sub-lines into same row
+  const [autoParseNumbers, setAutoParseNumbers] = useState<boolean>(true);
+  const [trimWhitespace, setTrimWhitespace] = useState<boolean>(true);
+  const [removeEmptyRows, setRemoveEmptyRows] = useState<boolean>(true);
+  const [hasHeaderRow, setHasHeaderRow] = useState<boolean>(true);
+  const [exportSingleSheet, setExportSingleSheet] = useState<boolean>(true);
 
+  // Status & Async States
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [loadingText, setLoadingText] = useState('');
+  const [copied, setCopied] = useState(false);
+  const [isScannedPdf, setIsScannedPdf] = useState(false);
+
+  const resetState = () => {
+    setPdfFile(null);
+    setArrayBuffer(null);
+    setTables([]);
+    setTotalPages(0);
+    setIsPasswordRequired(false);
+    setPdfPassword('');
+    setPasswordError('');
+    setIsUnlocked(false);
+    setIsScannedPdf(false);
+  };
 
   const handleFilesSelected = async (files: File[]) => {
     if (files.length === 0) return;
     const file = files[0];
     setPdfFile(file);
     setTables([]);
+    setIsScannedPdf(false);
+    setIsPasswordRequired(false);
+    setPdfPassword('');
+    setPasswordError('');
+    setIsUnlocked(false);
     
-    const buffer = await file.arrayBuffer();
-    setArrayBuffer(buffer);
+    try {
+      const buffer = await file.arrayBuffer();
+      setArrayBuffer(buffer);
+      await loadPdfDocument(buffer, '');
+    } catch (err) {
+      console.error("Failed to load PDF preview:", err);
+    }
   };
-  const extractTables = async () => {
-    if (!arrayBuffer || !pdfFile) return;
+
+  /**
+   * Loads PDF Document with password handling
+   */
+  const loadPdfDocument = async (buffer: ArrayBuffer, pwd: string) => {
+    try {
+      const loadingTask = pdfjsLib.getDocument({
+        data: new Uint8Array(buffer.slice(0)),
+        password: pwd
+      });
+      const pdf = await loadingTask.promise;
+      setTotalPages(pdf.numPages);
+      setIsPasswordRequired(false);
+      setPasswordError('');
+      setIsUnlocked(true);
+      return pdf;
+    } catch (err: any) {
+      if (
+        err?.name === 'PasswordException' || 
+        err?.code === 1 || 
+        err?.code === 2 || 
+        (err?.message && err.message.toLowerCase().includes('password'))
+      ) {
+        setIsPasswordRequired(true);
+        if (pwd) {
+          setPasswordError('Incorrect password. Please enter the correct password.');
+        } else {
+          setPasswordError('');
+        }
+        return null;
+      }
+      throw err;
+    }
+  };
+
+  /**
+   * Submit Password Handler
+   */
+  const handlePasswordSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!arrayBuffer || !pdfPassword) return;
 
     setIsProcessing(true);
-    setProgress(10);
-
-    const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL || '').replace(/\/$/, '');
-    const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
-    const isServerConversion = !!supabaseUrl;
-
-    if (isServerConversion) {
-      setLoadingText('Connecting to Supabase Edge Server...');
-      try {
-        const formData = new FormData();
-        formData.append('file', pdfFile);
-        formData.append('output_format', 'xlsx');
-
-        setProgress(40);
-        setLoadingText('Sending file to Supabase Edge Function (converting to editable Excel)...');
-
-        const convertApiSecret = import.meta.env.VITE_CONVERT_API_SECRET || '';
-        const headers: { [key: string]: string } = {
-          'apikey': supabaseAnonKey,
-        };
-        if (convertApiSecret) {
-          headers['x-convert-api-secret'] = convertApiSecret;
-        }
-
-        const response = await fetch(`${supabaseUrl}/functions/v1/convert-file`, {
-          method: 'POST',
-          headers,
-          body: formData,
-        });
-
-        if (!response.ok) {
-          const errData = await response.json().catch(() => ({ error: response.statusText }));
-          throw new Error(errData.error || `Server conversion failed with status ${response.status}`);
-        }
-
-        const contentType = response.headers.get('content-type') || '';
-        if (contentType.includes('application/json')) {
-          const result = await response.json();
-          if (result.sheets && result.sheets.length > 0) {
-            const parsedTables = result.sheets.map((sheet: any, idx: number) => ({
-              pageNumber: idx + 1,
-              rows: sheet.rows || []
-            }));
-            setTables(parsedTables);
-            setSelectedPageIndex(0);
-            setProgress(100);
-            setIsProcessing(false);
-            return;
-          }
-        }
-
-        setProgress(85);
-        setLoadingText('Downloading Excel Workbook...');
-
-        const blob = await response.blob();
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.setAttribute('download', `${pdfFile.name.replace(/\.[^/.]+$/, "")}_converted.xlsx`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-
-        setProgress(100);
-        setIsProcessing(false);
-        return;
-
-      } catch (err: any) {
-        console.warn('Supabase native conversion failed, falling back to local table extraction:', err);
-      }
-    }
-    setLoadingText('Loading PDF layout (local fallback)...');
-    setProgress(20);
-    setTables([]);
-
+    setLoadingText('Verifying PDF password...');
     try {
-      const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
-      const pdf = await loadingTask.promise;
-      const numPages = pdf.numPages;
-      const extracted: ExtractedTable[] = [];
-
-      for (let i = 1; i <= numPages; i++) {
-        setLoadingText(`Parsing page ${i} of ${numPages}...`);
-        setProgress(Math.round(10 + (80 * i) / numPages));
-
-        const page = await pdf.getPage(i);
-        const textContent = await page.getTextContent();
-        const items = textContent.items as any[];
-
-        if (items.length === 0) {
-          extracted.push({ pageNumber: i, rows: [['Page is empty or contains only scanned images']] });
-          continue;
-        }
-
-        // Group text items by y coordinate (with custom tolerance)
-        const tolerance = 6; // Points tolerance for same row
-        const rowMap: { [y: number]: any[] } = {};
-
-        items.forEach((item) => {
-          if (!item.str.trim()) return; // skip empty text items
-          const y = item.transform[5];
-          
-          // Find if there is a row key within tolerance
-          let foundRowY = Object.keys(rowMap).find((rk) => Math.abs(Number(rk) - y) < tolerance);
-          
-          if (foundRowY) {
-            rowMap[Number(foundRowY)].push(item);
-          } else {
-            rowMap[y] = [item];
-          }
-        });
-
-        // Sort row Y coordinates from top to bottom (descending)
-        const sortedYKeys = Object.keys(rowMap)
-          .map(Number)
-          .sort((a, b) => b - a);
-
-        const pageRows: string[][] = [];
-
-        sortedYKeys.forEach((yKey) => {
-          const rowItems = rowMap[yKey];
-          // Sort items in the row from left to right (x coordinate ascending)
-          rowItems.sort((a, b) => a.transform[4] - b.transform[4]);
-
-          const rowCells: string[] = [];
-          let currentCellText = '';
-          let lastX = -1;
-          let lastWidth = 0;
-
-          rowItems.forEach((item) => {
-            const x = item.transform[4];
-            const width = item.width || 0;
-
-            if (lastX === -1) {
-              currentCellText = item.str;
-            } else {
-              const gap = x - (lastX + lastWidth);
-              if (gap > columnThreshold) {
-                // Large gap indicates new column cell
-                rowCells.push(currentCellText.trim());
-                currentCellText = item.str;
-              } else {
-                // Small gap, append text
-                currentCellText += ' ' + item.str;
-              }
-            }
-
-            lastX = x;
-            lastWidth = width;
-          });
-
-          if (currentCellText) {
-            rowCells.push(currentCellText.trim());
-          }
-
-          if (rowCells.length > 0) {
-            pageRows.push(rowCells);
-          }
-        });
-
-        extracted.push({
-          pageNumber: i,
-          rows: pageRows.length > 0 ? pageRows : [['No text elements detected']]
-        });
+      const pdf = await loadPdfDocument(arrayBuffer, pdfPassword);
+      if (pdf) {
+        await runTableExtraction(pdf);
       }
-
-      setTables(extracted);
-      setSelectedPageIndex(0);
-      setProgress(100);
-    } catch (err) {
-      console.error(err);
-      alert('Error parsing PDF. Make sure it is a vector text PDF and not scanned images.');
+    } catch (err: any) {
+      alert(`Error opening PDF: ${err.message || err}`);
     } finally {
       setIsProcessing(false);
     }
   };
 
+  /**
+   * Trigger table extraction manually or after unlock
+   */
+  const extractTables = async () => {
+    if (!arrayBuffer || !pdfFile) return;
+
+    setIsProcessing(true);
+    setProgress(10);
+    setLoadingText('Initializing PDF Layout Engine...');
+    setIsScannedPdf(false);
+
+    try {
+      const pdf = await loadPdfDocument(arrayBuffer, pdfPassword);
+      if (pdf) {
+        await runTableExtraction(pdf);
+      }
+    } catch (err: any) {
+      console.error("PDF Extraction error:", err);
+      alert(`Error parsing PDF: ${err.message || err}`);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  /**
+   * Clean raw string from PDF ligatures and control characters
+   */
+  const cleanRawText = (text: string): string => {
+    if (!text) return '';
+    return text
+      .replace(/[\x00-\x1F\x7F]/g, '') // remove control chars
+      .replace(/\uFB01/g, 'fi') // replace ligatures
+      .replace(/\uFB02/g, 'fl')
+      .replace(/\s+/g, ' '); // normalize spaces
+  };
+
+  /**
+   * Advanced High-Precision Layout & Gutter Analysis Engine
+   */
+  const runTableExtraction = async (pdf: pdfjsLib.PDFDocumentProxy) => {
+    const numPages = pdf.numPages;
+    const extractedPages: ExtractedTable[] = [];
+    let totalTextItemsCount = 0;
+
+    for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+      setLoadingText(`Analyzing layout structure on Page ${pageNum} of ${numPages}...`);
+      setProgress(Math.round(10 + (75 * pageNum) / numPages));
+
+      const page = await pdf.getPage(pageNum);
+      const viewport = page.getViewport({ scale: 1.0 });
+      const textContent = await page.getTextContent();
+      const items = textContent.items as any[];
+      totalTextItemsCount += items.length;
+
+      if (items.length === 0) {
+        extractedPages.push({
+          pageNumber: pageNum,
+          rows: [
+            ['[Scanned Image / No Vector Text Detected]'],
+            ['This page appears to contain scanned images instead of text elements.']
+          ]
+        });
+        continue;
+      }
+
+      // 1. Convert text items to normalized bounding box elements
+      const rawItems = items.filter(it => it.str && (trimWhitespace ? it.str.trim().length > 0 : true)).map(it => {
+        const x = it.transform[4];
+        const y = it.transform[5];
+        const width = Math.max(it.width || 0, 4);
+        const height = Math.abs(it.transform[0] || it.transform[3] || 10);
+        const cleanedStr = cleanRawText(it.str);
+        return {
+          str: trimWhitespace ? cleanedStr.trim() : cleanedStr,
+          x,
+          y,
+          width,
+          height,
+          xMid: x + width / 2,
+          xEnd: x + width
+        };
+      });
+
+      if (rawItems.length === 0) {
+        extractedPages.push({
+          pageNumber: pageNum,
+          rows: [['No readable text content on this page']]
+        });
+        continue;
+      }
+
+      // 2. Group items into Row Lines by Y coordinate (PDF Y coordinate is higher at top)
+      const rowMap: { [y: number]: typeof rawItems } = {};
+
+      rawItems.forEach((item) => {
+        const existingYKey = Object.keys(rowMap).find(rk => Math.abs(Number(rk) - item.y) <= rowTolerance);
+        if (existingYKey !== undefined) {
+          rowMap[Number(existingYKey)].push(item);
+        } else {
+          rowMap[item.y] = [item];
+        }
+      });
+
+      // Sort row Y keys descending (top of page to bottom)
+      const sortedYKeys = Object.keys(rowMap)
+        .map(Number)
+        .sort((a, b) => b - a);
+
+      let pageRows: string[][] = [];
+
+      if (extractionMode === 'whitespace-gutter') {
+        // --- WHITESPACE GUTTER ALGORITHM ---
+        const pageWidthInt = Math.ceil(viewport.width || 1000);
+        const coverage = new Uint16Array(pageWidthInt + 1);
+
+        rawItems.forEach(item => {
+          const start = Math.max(0, Math.floor(item.x));
+          const end = Math.min(pageWidthInt, Math.ceil(item.xEnd));
+          for (let px = start; px <= end; px++) {
+            coverage[px] += 1;
+          }
+        });
+
+        interface ColumnInterval {
+          start: number;
+          end: number;
+        }
+
+        const columnIntervals: ColumnInterval[] = [];
+        let inCol = false;
+        let colStart = 0;
+        const minGutter = Math.max(4, columnThreshold);
+
+        let quietCount = 0;
+        for (let px = 0; px <= pageWidthInt; px++) {
+          const isOccupied = coverage[px] > 0;
+          if (isOccupied) {
+            if (!inCol) {
+              inCol = true;
+              colStart = px;
+            }
+            quietCount = 0;
+          } else {
+            quietCount++;
+            if (inCol && quietCount >= minGutter) {
+              inCol = false;
+              columnIntervals.push({ start: colStart, end: px - quietCount });
+            }
+          }
+        }
+        if (inCol) {
+          columnIntervals.push({ start: colStart, end: pageWidthInt });
+        }
+
+        if (columnIntervals.length === 0) {
+          columnIntervals.push({ start: 0, end: pageWidthInt });
+        }
+
+        sortedYKeys.forEach((yKey) => {
+          const rowItems = rowMap[yKey];
+          rowItems.sort((a, b) => a.x - b.x);
+
+          const rowCells: string[] = new Array(columnIntervals.length).fill('');
+
+          rowItems.forEach(item => {
+            let bestColIdx = 0;
+            let maxOverlap = -1;
+
+            columnIntervals.forEach((interval, cIdx) => {
+              const overlapStart = Math.max(item.x, interval.start);
+              const overlapEnd = Math.min(item.xEnd, interval.end);
+              const overlap = Math.max(0, overlapEnd - overlapStart);
+
+              if (overlap > maxOverlap) {
+                maxOverlap = overlap;
+                bestColIdx = cIdx;
+              } else if (maxOverlap <= 0 && item.xMid >= interval.start && item.xMid <= interval.end) {
+                bestColIdx = cIdx;
+              }
+            });
+
+            if (rowCells[bestColIdx]) {
+              rowCells[bestColIdx] += ' ' + item.str;
+            } else {
+              rowCells[bestColIdx] = item.str;
+            }
+          });
+
+          let processedCells = rowCells.map(c => trimWhitespace ? c.trim() : c);
+          const isEmptyRow = processedCells.every(c => c === '');
+          if (!isEmptyRow || !removeEmptyRows) {
+            pageRows.push(processedCells);
+          }
+        });
+
+      } else if (extractionMode === 'smart-grid') {
+        const xPositions = rawItems.map(i => i.x).sort((a, b) => a - b);
+        const colBoundaries: number[] = [];
+
+        xPositions.forEach(x => {
+          if (colBoundaries.length === 0) {
+            colBoundaries.push(x);
+          } else {
+            const lastBoundary = colBoundaries[colBoundaries.length - 1];
+            if (x - lastBoundary > columnThreshold) {
+              colBoundaries.push(x);
+            }
+          }
+        });
+
+        sortedYKeys.forEach((yKey) => {
+          const rowItems = rowMap[yKey];
+          rowItems.sort((a, b) => a.x - b.x);
+
+          const rowCells: string[] = new Array(colBoundaries.length).fill('');
+
+          rowItems.forEach(item => {
+            let colIndex = 0;
+            for (let c = colBoundaries.length - 1; c >= 0; c--) {
+              if (item.x >= colBoundaries[c] - columnThreshold / 2) {
+                colIndex = c;
+                break;
+              }
+            }
+            if (rowCells[colIndex]) {
+              rowCells[colIndex] += ' ' + item.str;
+            } else {
+              rowCells[colIndex] = item.str;
+            }
+          });
+
+          let processedCells = rowCells.map(c => trimWhitespace ? c.trim() : c);
+          const isEmptyRow = processedCells.every(c => c === '');
+          if (!isEmptyRow || !removeEmptyRows) {
+            pageRows.push(processedCells);
+          }
+        });
+
+      } else if (extractionMode === 'gap-threshold') {
+        sortedYKeys.forEach((yKey) => {
+          const rowItems = rowMap[yKey];
+          rowItems.sort((a, b) => a.x - b.x);
+
+          const rowCells: string[] = [];
+          let currentCell = '';
+          let lastX = -1;
+          let lastWidth = 0;
+
+          rowItems.forEach(item => {
+            if (lastX === -1) {
+              currentCell = item.str;
+            } else {
+              const gap = item.x - (lastX + lastWidth);
+              if (gap > columnThreshold) {
+                rowCells.push(trimWhitespace ? currentCell.trim() : currentCell);
+                currentCell = item.str;
+              } else {
+                currentCell += ' ' + item.str;
+              }
+            }
+            lastX = item.x;
+            lastWidth = item.width;
+          });
+
+          if (currentCell) {
+            rowCells.push(trimWhitespace ? currentCell.trim() : currentCell);
+          }
+
+          if (rowCells.length > 0 && (!removeEmptyRows || rowCells.some(c => c !== ''))) {
+            pageRows.push(rowCells);
+          }
+        });
+      } else {
+        sortedYKeys.forEach((yKey) => {
+          const rowItems = rowMap[yKey];
+          rowItems.sort((a, b) => a.x - b.x);
+          const lineStr = rowItems.map(i => i.str).join('  ');
+          const rowCells = lineStr.split(/\s{2,}/).map(s => trimWhitespace ? s.trim() : s);
+          if (rowCells.length > 0 && (!removeEmptyRows || rowCells.some(c => c !== ''))) {
+            pageRows.push(rowCells);
+          }
+        });
+      }
+
+      // --- MULTI-LINE ROW MERGING POST-PROCESSOR ---
+      if (mergeMultilineRows && pageRows.length > 1) {
+        const mergedRows: string[][] = [];
+        pageRows.forEach((r, idx) => {
+          if (idx === 0) {
+            mergedRows.push(r);
+            return;
+          }
+          const prevRow = mergedRows[mergedRows.length - 1];
+          const isContinuation = r.length === prevRow.length && r[0] === '' && r.some(c => c !== '');
+          if (isContinuation) {
+            r.forEach((cellVal, cIdx) => {
+              if (cellVal) {
+                prevRow[cIdx] = prevRow[cIdx] ? `${prevRow[cIdx]} ${cellVal}` : cellVal;
+              }
+            });
+          } else {
+            mergedRows.push(r);
+          }
+        });
+        pageRows = mergedRows;
+      }
+
+      // Trim empty trailing columns
+      if (pageRows.length > 0 && removeEmptyRows) {
+        const maxCols = Math.max(...pageRows.map(r => r.length));
+        const activeCols: boolean[] = new Array(maxCols).fill(false);
+
+        pageRows.forEach(r => {
+          r.forEach((cell, idx) => {
+            if (cell !== '') activeCols[idx] = true;
+          });
+        });
+
+        pageRows = pageRows.map(r => r.filter((_, idx) => activeCols[idx]));
+      }
+
+      extractedPages.push({
+        pageNumber: pageNum,
+        rows: pageRows.length > 0 ? pageRows : [['No data extracted on this page']]
+      });
+    }
+
+    if (totalTextItemsCount === 0) {
+      setIsScannedPdf(true);
+    }
+
+    setTables(extractedPages);
+    setSelectedPageIndex(0);
+    setProgress(100);
+    setLoadingText('Table extraction complete!');
+  };
+
+  /**
+   * Cell modification handlers for active preview table
+   */
+  const handleCellChange = (rIdx: number, cIdx: number, val: string) => {
+    const updated = [...tables];
+    const activeRows = [...updated[selectedPageIndex].rows];
+    activeRows[rIdx] = [...activeRows[rIdx]];
+    activeRows[rIdx][cIdx] = val;
+    updated[selectedPageIndex].rows = activeRows;
+    setTables(updated);
+  };
+
+  const addRow = () => {
+    if (tables.length === 0) return;
+    const updated = [...tables];
+    const activeTable = updated[selectedPageIndex];
+    const colCount = activeTable.rows[0]?.length || 1;
+    const newRow = new Array(colCount).fill('');
+    activeTable.rows.push(newRow);
+    setTables(updated);
+  };
+
+  const deleteRow = (rIdx: number) => {
+    if (tables.length === 0) return;
+    const updated = [...tables];
+    const activeTable = updated[selectedPageIndex];
+    if (activeTable.rows.length <= 1) return;
+    activeTable.rows.splice(rIdx, 1);
+    setTables(updated);
+  };
+
+  const addColumn = () => {
+    if (tables.length === 0) return;
+    const updated = [...tables];
+    const activeTable = updated[selectedPageIndex];
+    activeTable.rows.forEach(r => r.push(''));
+    setTables(updated);
+  };
+
+  const deleteColumn = (cIdx: number) => {
+    if (tables.length === 0) return;
+    const updated = [...tables];
+    const activeTable = updated[selectedPageIndex];
+    if (activeTable.rows[0]?.length <= 1) return;
+    activeTable.rows.forEach(r => r.splice(cIdx, 1));
+    setTables(updated);
+  };
+
+  /**
+   * Merge two adjacent columns into one
+   */
+  const mergeAdjacentColumns = (cIdx: number) => {
+    if (tables.length === 0) return;
+    const updated = [...tables];
+    const activeTable = updated[selectedPageIndex];
+    if (cIdx >= activeTable.rows[0]?.length - 1) return;
+
+    activeTable.rows.forEach(r => {
+      const col1 = r[cIdx] || '';
+      const col2 = r[cIdx + 1] || '';
+      r[cIdx] = (col1 + ' ' + col2).trim();
+      r.splice(cIdx + 1, 1);
+    });
+    setTables(updated);
+  };
+
+  /**
+   * Auto Clean Table Formatting (removes duplicate spaces, casts clean numbers)
+   */
+  const autoCleanTable = () => {
+    if (tables.length === 0) return;
+    const updated = [...tables];
+    const activeTable = updated[selectedPageIndex];
+    activeTable.rows = activeTable.rows.map(r => r.map(c => c.replace(/\s+/g, ' ').trim()));
+    setTables(updated);
+  };
+
+  /**
+   * Export to Excel Workbook (.xlsx) with true typed Numeric cells
+   */
   const downloadExcel = () => {
     if (tables.length === 0) return;
     
-    // Create new workbook
     const wb = XLSX.utils.book_new();
 
-    tables.forEach((t) => {
-      // Convert sheet rows
-      const ws = XLSX.utils.aoa_to_sheet(t.rows);
-      XLSX.utils.book_append_sheet(wb, ws, `Page ${t.pageNumber}`);
-    });
+    const processRowsForSheet = (rawRows: string[][]) => {
+      return rawRows.map((row) => {
+        return row.map((cell) => {
+          if (!cell) return '';
+          if (autoParseNumbers) {
+            // Strip currency symbols and commas to check if pure number
+            const unformatted = cell.replace(/[$₹€,]/g, '').trim();
+            if (unformatted !== '' && !isNaN(Number(unformatted)) && !isNaN(parseFloat(unformatted))) {
+              return Number(unformatted);
+            }
+          }
+          return cell;
+        });
+      });
+    };
 
-    // Write file
-    XLSX.writeFile(wb, `${pdfFile?.name.replace(/\.[^/.]+$/, "")}_extracted.xlsx`);
+    if (exportSingleSheet) {
+      const allRows: string[][] = [];
+      tables.forEach((t, idx) => {
+        if (idx > 0 && hasHeaderRow && t.rows.length > 0) {
+          allRows.push(...t.rows.slice(1));
+        } else {
+          allRows.push(...t.rows);
+        }
+      });
+
+      const typedRows = processRowsForSheet(allRows);
+      const ws = XLSX.utils.aoa_to_sheet(typedRows);
+
+      const maxCols = Math.max(...allRows.map(r => r.length));
+      ws['!cols'] = Array.from({ length: maxCols }, (_, colIdx) => {
+        let maxLen = 10;
+        allRows.forEach(r => {
+          const val = String(r[colIdx] || '');
+          if (val.length > maxLen) maxLen = val.length;
+        });
+        return { wch: Math.min(maxLen + 3, 50) };
+      });
+
+      XLSX.utils.book_append_sheet(wb, ws, "Extracted Data");
+    } else {
+      tables.forEach((t) => {
+        const typedRows = processRowsForSheet(t.rows);
+        const ws = XLSX.utils.aoa_to_sheet(typedRows);
+        const maxCols = Math.max(...t.rows.map(r => r.length));
+        ws['!cols'] = Array.from({ length: maxCols }, (_, colIdx) => {
+          let maxLen = 10;
+          t.rows.forEach(r => {
+            const val = String(r[colIdx] || '');
+            if (val.length > maxLen) maxLen = val.length;
+          });
+          return { wch: Math.min(maxLen + 3, 50) };
+        });
+
+        XLSX.utils.book_append_sheet(wb, ws, `Page ${t.pageNumber}`);
+      });
+    }
+
+    const filename = `${pdfFile?.name.replace(/\.[^/.]+$/, "")}_converted.xlsx`;
+    XLSX.writeFile(wb, filename);
   };
 
+  /**
+   * Export to CSV (.csv)
+   */
   const downloadCsv = () => {
     if (tables.length === 0) return;
     const activeTable = tables[selectedPageIndex];
     
-    // Generate CSV content
     const ws = XLSX.utils.aoa_to_sheet(activeTable.rows);
     const csv = XLSX.utils.sheet_to_csv(ws);
     
@@ -253,6 +664,56 @@ export const PdfToExcel: React.FC = () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  /**
+   * Export to JSON (.json)
+   */
+  const downloadJson = () => {
+    if (tables.length === 0) return;
+    const activeTable = tables[selectedPageIndex];
+    const rows = activeTable.rows;
+
+    let jsonData: any[] = [];
+    if (hasHeaderRow && rows.length > 1) {
+      const headers = rows[0].map((h, i) => h.trim() || `Column_${i + 1}`);
+      jsonData = rows.slice(1).map(row => {
+        const obj: any = {};
+        headers.forEach((h, i) => {
+          const val = row[i] || '';
+          const num = val.replace(/[$₹€,]/g, '').trim();
+          if (autoParseNumbers && num !== '' && !isNaN(Number(num))) {
+            obj[h] = Number(num);
+          } else {
+            obj[h] = val;
+          }
+        });
+        return obj;
+      });
+    } else {
+      jsonData = rows;
+    }
+
+    const blob = new Blob([JSON.stringify(jsonData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `${pdfFile?.name.replace(/\.[^/.]+$/, "")}_page_${activeTable.pageNumber}.json`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  /**
+   * Copy active table data to clipboard
+   */
+  const copyToClipboard = () => {
+    if (tables.length === 0) return;
+    const activeTable = tables[selectedPageIndex];
+    const tsvText = activeTable.rows.map(r => r.join('\t')).join('\n');
+    navigator.clipboard.writeText(tsvText);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const activeTable = tables[selectedPageIndex];
@@ -268,183 +729,518 @@ export const PdfToExcel: React.FC = () => {
       />
 
       {!pdfFile ? (
-        <div className="max-w-xl mx-auto mt-10">
+        <div className="max-w-2xl mx-auto mt-10">
           <FileUpload
             accept=".pdf"
             multiple={false}
             onFilesSelected={handleFilesSelected}
-            label="Upload PDF document to extract tables"
+            label="Upload PDF document to extract tables into Excel"
           />
+
+          {/* Feature Badges */}
+          <div className="mt-8 grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-dark-card text-center">
+              <Sparkles className="w-6 h-6 text-brand-500 mx-auto mb-2" />
+              <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">Whitespace Gutter Engine</h4>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                Accurately aligns multi-column tables, right-aligned numbers & headers
+              </p>
+            </div>
+            <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-dark-card text-center">
+              <TableIcon className="w-6 h-6 text-emerald-500 mx-auto mb-2" />
+              <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">Interactive Editor & Formatter</h4>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                Edit cells, merge/split columns & cast true Excel numbers
+              </p>
+            </div>
+            <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-dark-card text-center">
+              <Lock className="w-6 h-6 text-indigo-500 mx-auto mb-2" />
+              <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">Password & Multi-line Support</h4>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                Unlocks encrypted PDFs and combines multi-line table rows
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : isPasswordRequired ? (
+        /* Password Prompt Dialog Card */
+        <div className="max-w-md mx-auto mt-10 p-8 rounded-2xl border border-amber-200 dark:border-amber-900/50 bg-white dark:bg-dark-card shadow-xl text-center space-y-5 animate-in fade-in">
+          <div className="w-14 h-14 rounded-2xl bg-amber-500/10 text-amber-500 flex items-center justify-center mx-auto">
+            <Lock className="w-7 h-7" />
+          </div>
+
+          <div>
+            <h3 className="font-heading text-lg font-bold text-slate-800 dark:text-slate-100">
+              Password Protected PDF
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+              "<span className="font-semibold text-slate-700 dark:text-slate-300">{pdfFile.name}</span>" is encrypted with a password. Please enter the password to proceed.
+            </p>
+          </div>
+
+          <form onSubmit={handlePasswordSubmit} className="space-y-4 text-left">
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                <Key size={14} className="text-amber-500" />
+                <span>Enter Password</span>
+              </label>
+              
+              <div className="relative">
+                <input
+                  type={showPasswordText ? "text" : "password"}
+                  value={pdfPassword}
+                  onChange={(e) => {
+                    setPdfPassword(e.target.value);
+                    setPasswordError('');
+                  }}
+                  placeholder="Enter PDF password..."
+                  required
+                  className="w-full pl-3 pr-10 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-xs text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPasswordText(!showPasswordText)}
+                  className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                >
+                  {showPasswordText ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+
+              {passwordError && (
+                <p className="text-[11px] font-semibold text-rose-500 mt-1 flex items-center gap-1">
+                  <AlertTriangle size={12} />
+                  <span>{passwordError}</span>
+                </p>
+              )}
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={resetState}
+                className="w-1/2 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 font-bold text-xs transition-colors"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="submit"
+                disabled={isProcessing || !pdfPassword}
+                className="w-1/2 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-amber-500/20 transition-all"
+              >
+                {isProcessing ? (
+                  <RefreshCw size={14} className="animate-spin" />
+                ) : (
+                  <Unlock size={14} />
+                )}
+                <span>Unlock PDF</span>
+              </button>
+            </div>
+          </form>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Main Workspace */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-6">
+          
+          {/* Left / Main Workspace: Grid Preview & Editor */}
           <div className="lg:col-span-2 space-y-6">
+            
+            {/* Top Bar Info & Page Navigation */}
             <div className="flex flex-wrap gap-3 justify-between items-center pb-3 border-b border-slate-200 dark:border-slate-800">
               <div className="flex items-center gap-3">
-                <h3 className="text-sm font-bold text-slate-800 dark:text-slate-250">
-                  File: {pdfFile.name}
-                </h3>
-                {tables.length > 1 && (
+                <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                  <FileSpreadsheet className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                    <span>{pdfFile.name}</span>
+                    {isUnlocked && (
+                      <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <Unlock size={10} /> Unlocked
+                      </span>
+                    )}
+                  </h3>
+                  <p className="text-[11px] text-slate-400 font-medium">
+                    Total Pages: {totalPages} | Size: {(pdfFile.size / 1024).toFixed(1)} KB
+                  </p>
+                </div>
+              </div>
+
+              {tables.length > 1 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">View Page:</span>
                   <select
                     value={selectedPageIndex}
                     onChange={(e) => setSelectedPageIndex(Number(e.target.value))}
-                    className="px-2 py-1 text-xs border border-slate-200 dark:border-slate-800 bg-white dark:bg-dark-card rounded-lg font-semibold text-slate-850 dark:text-slate-200"
+                    className="px-3 py-1.5 text-xs font-bold border border-slate-200 dark:border-slate-800 bg-white dark:bg-dark-card rounded-lg text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-brand-500"
                   >
                     {tables.map((table, index) => (
                       <option key={index} value={index}>
-                        Page {table.pageNumber}
+                        Page {table.pageNumber} ({table.rows.length} rows)
                       </option>
                     ))}
                   </select>
-                )}
-              </div>
-              
+                </div>
+              )}
+
               <button
-                onClick={() => {
-                  setPdfFile(null);
-                  setArrayBuffer(null);
-                  setTables([]);
-                }}
-                className="text-[10px] text-slate-450 hover:text-brand-500 font-bold hover:underline"
+                onClick={resetState}
+                className="text-xs text-slate-400 hover:text-brand-500 font-bold underline transition-colors"
               >
-                Upload Different PDF
+                Change PDF
               </button>
             </div>
 
+            {/* Scanned PDF Warning Banner */}
+            {isScannedPdf && (
+              <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 flex items-start gap-3 text-amber-800 dark:text-amber-300 text-xs">
+                <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold">Scanned Document Detected</p>
+                  <p className="mt-0.5 text-[11px] leading-relaxed">
+                    This PDF appears to be a scanned image or photo rather than structured vector text. You can manually enter data or add rows/columns in the editor below.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Processing State */}
             {isProcessing && (
-              <div className="py-20 text-center">
+              <div className="py-20 text-center bg-white dark:bg-dark-card rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
                 <ProgressBar progress={progress} statusText={loadingText} />
               </div>
             )}
 
+            {/* Render Table Preview Grid */}
             {!isProcessing && tables.length > 0 ? (
               <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-dark-card shadow-sm overflow-hidden">
-                <div className="p-4 bg-slate-50 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center text-xs font-bold text-slate-650 dark:text-slate-350">
-                  <span className="flex items-center gap-1.5">
-                    <Eye size={14} className="text-brand-500" />
-                    <span>Extracted Table Preview</span>
-                  </span>
-                  <span>Total Rows: {activeTable.rows.length}</span>
+                
+                {/* Table Action Bar */}
+                <div className="p-3.5 bg-slate-50 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-800 flex flex-wrap justify-between items-center text-xs gap-3">
+                  <div className="flex items-center gap-2 font-bold text-slate-700 dark:text-slate-300">
+                    <Eye size={16} className="text-brand-500" />
+                    <span>Page {activeTable.pageNumber} Preview & Editor</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-brand-500/10 text-brand-600 dark:text-brand-400">
+                      {activeTable.rows.length} Rows × {activeTable.rows[0]?.length || 0} Columns
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={autoCleanTable}
+                      title="Auto clean extra spaces & formatting"
+                      className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-dark-card text-brand-600 dark:text-brand-400 hover:bg-brand-50 font-semibold flex items-center gap-1 transition-colors text-[11px]"
+                    >
+                      <Wand2 size={12} />
+                      <span>Auto Clean</span>
+                    </button>
+
+                    <button
+                      onClick={addRow}
+                      className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-dark-card text-slate-700 dark:text-slate-300 hover:bg-slate-100 font-semibold flex items-center gap-1 transition-colors text-[11px]"
+                    >
+                      <Plus size={12} />
+                      <span>Add Row</span>
+                    </button>
+
+                    <button
+                      onClick={addColumn}
+                      className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-dark-card text-slate-700 dark:text-slate-300 hover:bg-slate-100 font-semibold flex items-center gap-1 transition-colors text-[11px]"
+                    >
+                      <Plus size={12} />
+                      <span>Add Column</span>
+                    </button>
+
+                    <button
+                      onClick={copyToClipboard}
+                      className="px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 font-semibold flex items-center gap-1 transition-colors text-[11px]"
+                    >
+                      {copied ? <Check size={12} /> : <Copy size={12} />}
+                      <span>{copied ? 'Copied!' : 'Copy TSV'}</span>
+                    </button>
+                  </div>
                 </div>
 
-                <div className="overflow-x-auto max-h-[450px] overflow-y-auto">
-                  <table className="w-full border-collapse text-[11px] text-slate-600 dark:text-slate-300">
-                    <tbody>
-                      {activeTable.rows.map((row, rIdx) => (
-                        <tr key={rIdx} className="hover:bg-slate-50/50 dark:hover:bg-slate-850/20 border-b border-slate-100 dark:border-slate-800">
-                          <td className="p-2 border-r border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30 text-center w-10 font-bold text-slate-400">
-                            {rIdx + 1}
-                          </td>
-                          {row.map((cell, cIdx) => (
-                            <td key={cIdx} className="p-2 border-r border-slate-200 dark:border-slate-800 min-w-[80px]">
-                              {cell}
+                {/* Editable Data Table */}
+                <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
+                  <table className="w-full border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-slate-100 dark:bg-slate-850 border-b border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 font-bold">
+                        <th className="p-2 border-r border-slate-200 dark:border-slate-800 w-10 text-center">#</th>
+                        {activeTable.rows[0]?.map((_, cIdx) => (
+                          <th key={cIdx} className="p-2 border-r border-slate-200 dark:border-slate-800 min-w-[110px] text-left group relative">
+                            <div className="flex justify-between items-center">
+                              <span>Col {String.fromCharCode(65 + cIdx)}</span>
+                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                {cIdx < activeTable.rows[0].length - 1 && (
+                                  <button
+                                    onClick={() => mergeAdjacentColumns(cIdx)}
+                                    title="Merge with Next Column"
+                                    className="text-brand-500 hover:text-brand-700 p-0.5"
+                                  >
+                                    <Combine size={12} />
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => deleteColumn(cIdx)}
+                                  title="Delete Column"
+                                  className="text-rose-500 hover:text-rose-700 p-0.5"
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              </div>
+                            </div>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {activeTable.rows.map((row, rIdx) => {
+                        const isHeader = hasHeaderRow && rIdx === 0;
+                        return (
+                          <tr 
+                            key={rIdx} 
+                            className={`group ${isHeader ? 'bg-amber-500/10 font-bold text-amber-900 dark:text-amber-300' : 'hover:bg-slate-50/80 dark:hover:bg-slate-850/40 text-slate-700 dark:text-slate-300'}`}
+                          >
+                            <td className="p-2 border-r border-slate-200 dark:border-slate-800 text-center font-mono text-[10px] text-slate-400 relative">
+                              {rIdx + 1}
+                              <button
+                                onClick={() => deleteRow(rIdx)}
+                                title="Delete Row"
+                                className="absolute left-1 top-1.5 opacity-0 group-hover:opacity-100 text-rose-500 hover:text-rose-700 transition-opacity"
+                              >
+                                <Trash2 size={10} />
+                              </button>
                             </td>
-                          ))}
-                        </tr>
-                      ))}
+                            {row.map((cell, cIdx) => (
+                              <td 
+                                key={cIdx} 
+                                className="p-1 border-r border-slate-200 dark:border-slate-800 focus-within:ring-2 focus-within:ring-brand-500"
+                              >
+                                <input
+                                  type="text"
+                                  value={cell}
+                                  onChange={(e) => handleCellChange(rIdx, cIdx, e.target.value)}
+                                  className="w-full px-1.5 py-1 bg-transparent border-none outline-none text-xs"
+                                />
+                              </td>
+                            ))}
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
+                </div>
+
+                {/* Table Footer info */}
+                <div className="p-3 bg-slate-50 dark:bg-slate-900/60 border-t border-slate-200 dark:border-slate-800 text-[11px] text-slate-400 flex justify-between items-center">
+                  <span>💡 Tip: Double click or click any cell to edit. Hover column headers to merge adjacent columns.</span>
+                  {hasHeaderRow && <span className="text-amber-600 dark:text-amber-400 font-semibold">Row 1 marked as Header</span>}
                 </div>
               </div>
             ) : (
               !isProcessing && (
-                <div className="py-24 text-center rounded-2xl border border-dashed border-slate-250 dark:border-slate-800 bg-slate-50/50 dark:bg-dark-card/50">
-                  <FileSpreadsheet className="w-12 h-12 text-slate-350 mx-auto mb-4" />
-                  <h4 className="text-xs font-bold text-slate-700 dark:text-slate-250">Table Analysis Pending</h4>
-                  <p className="text-[10px] text-slate-450 dark:text-slate-400 mt-1 max-w-xs mx-auto">
-                    Hit "Analyze & Extract Tables" below to parse columns and grids from your PDF file.
+                <div className="py-24 text-center rounded-2xl border border-dashed border-slate-300 dark:border-slate-800 bg-white dark:bg-dark-card">
+                  <Grid className="w-14 h-14 text-brand-400 mx-auto mb-4 animate-pulse" />
+                  <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">Ready to Extract Tables</h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm mx-auto">
+                    Click "Analyze & Extract Tables" to run our intelligent vertical column grid parser.
                   </p>
                 </div>
               )
             )}
           </div>
 
-          {/* Action & Configuration Panel */}
+          {/* Right Sidebar: Controls & Export Options */}
           <div className="space-y-6">
+            
+            {/* Control Settings Panel */}
             <div className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-dark-card shadow-sm">
               <h3 className="font-heading text-sm font-bold text-slate-800 dark:text-slate-100 mb-5 flex items-center gap-2">
-                <Settings size={16} className="text-brand-500" />
-                <span>Conversion Settings</span>
+                <Sliders size={16} className="text-brand-500" />
+                <span>Extraction Engine Settings</span>
               </h3>
 
-              <div className="space-y-4 text-xs font-semibold text-slate-650 dark:text-slate-350">
+              <div className="space-y-5 text-xs font-semibold text-slate-700 dark:text-slate-300">
+                
+                {/* Mode Selector */}
                 <div className="space-y-1.5">
-                  <div className="flex items-center gap-1.5 justify-between">
-                    <label>Column Detection Gap</label>
-                    <span className="text-[10px] text-brand-600 bg-brand-500/10 px-1.5 py-0.5 rounded font-bold">
-                      {columnThreshold}px
+                  <label className="text-slate-500 dark:text-slate-400">Column Detection Engine</label>
+                  <select
+                    value={extractionMode}
+                    onChange={(e) => setExtractionMode(e.target.value as ExtractionMode)}
+                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 font-bold text-xs"
+                  >
+                    <option value="whitespace-gutter">Whitespace Gutters (Best for Complex PDFs)</option>
+                    <option value="smart-grid">Smart Grid Clustering (Standard Tables)</option>
+                    <option value="gap-threshold">Proximity Gap Threshold</option>
+                    <option value="whitespace">Whitespace Separator</option>
+                  </select>
+                </div>
+
+                {/* Column Threshold Slider */}
+                <div className="space-y-1.5">
+                  <div className="flex justify-between items-center">
+                    <label>Column Gutter / Gap Sensitivity</label>
+                    <span className="text-[10px] text-brand-600 bg-brand-500/10 px-2 py-0.5 rounded-md font-bold">
+                      {columnThreshold} px
                     </span>
                   </div>
                   <input
                     type="range"
-                    min="5"
+                    min="3"
                     max="50"
                     value={columnThreshold}
-                    disabled={tables.length > 0}
                     onChange={(e) => setColumnThreshold(Number(e.target.value))}
-                    className="w-full accent-brand-500"
+                    className="w-full accent-brand-500 cursor-pointer"
                   />
-                  <span className="text-[9px] text-slate-400 block leading-tight">
-                    Smaller gaps detect more columns. Re-analyze if grids are misaligned.
-                  </span>
+                  <p className="text-[10px] text-slate-400 font-normal">
+                    Decrease to split tightly packed columns; increase to merge wider columns.
+                  </p>
                 </div>
 
-
-                
-                {tables.length > 0 && (
-                  <div className="space-y-2 pt-4 border-t border-slate-100 dark:border-slate-800">
-                    <button
-                      onClick={downloadExcel}
-                      className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/10 transition-all hover:scale-[1.02]"
-                    >
-                      <Download size={14} />
-                      <span>Export Workbook (.xlsx)</span>
-                    </button>
-                    
-                    <button
-                      onClick={downloadCsv}
-                      className="w-full py-2.5 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-350 font-bold rounded-xl flex items-center justify-center gap-2 transition-colors"
-                    >
-                      <Download size={14} />
-                      <span>Export Page {activeTable.pageNumber} (.csv)</span>
-                    </button>
+                {/* Row Tolerance Slider */}
+                <div className="space-y-1.5">
+                  <div className="flex justify-between items-center">
+                    <label>Row Line Height Tolerance</label>
+                    <span className="text-[10px] text-brand-600 bg-brand-500/10 px-2 py-0.5 rounded-md font-bold">
+                      {rowTolerance} px
+                    </span>
                   </div>
-                )}
-              </div>
+                  <input
+                    type="range"
+                    min="2"
+                    max="15"
+                    value={rowTolerance}
+                    onChange={(e) => setRowTolerance(Number(e.target.value))}
+                    className="w-full accent-brand-500 cursor-pointer"
+                  />
+                </div>
 
-              {tables.length === 0 && (
-                <div className="mt-8 border-t border-slate-100 dark:border-slate-800 pt-6">
+                {/* Toggles */}
+                <div className="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={mergeMultilineRows}
+                      onChange={(e) => setMergeMultilineRows(e.target.checked)}
+                      className="rounded text-brand-500 focus:ring-brand-500"
+                    />
+                    <span className="flex items-center gap-1.5">
+                      <Combine size={14} className="text-brand-500" />
+                      <span>Merge Multi-line Cell Rows</span>
+                    </span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={hasHeaderRow}
+                      onChange={(e) => setHasHeaderRow(e.target.checked)}
+                      className="rounded text-brand-500 focus:ring-brand-500"
+                    />
+                    <span>First Row is Table Header</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={trimWhitespace}
+                      onChange={(e) => setTrimWhitespace(e.target.checked)}
+                      className="rounded text-brand-500 focus:ring-brand-500"
+                    />
+                    <span>Trim Cell Whitespace</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={removeEmptyRows}
+                      onChange={(e) => setRemoveEmptyRows(e.target.checked)}
+                      className="rounded text-brand-500 focus:ring-brand-500"
+                    />
+                    <span>Remove Blank Rows & Columns</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={autoParseNumbers}
+                      onChange={(e) => setAutoParseNumbers(e.target.checked)}
+                      className="rounded text-brand-500 focus:ring-brand-500"
+                    />
+                    <span>Auto Format True Excel Numbers & Currency</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={exportSingleSheet}
+                      onChange={(e) => setExportSingleSheet(e.target.checked)}
+                      className="rounded text-brand-500 focus:ring-brand-500"
+                    />
+                    <span>Combine Multi-Page PDF into 1 Sheet</span>
+                  </label>
+                </div>
+
+                {/* Action Button: Extract */}
+                <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
                   <button
                     onClick={extractTables}
                     disabled={isProcessing}
-                    className="w-full py-3.5 rounded-xl bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-brand-600/10 transition-all hover:scale-[1.02]"
+                    className="w-full py-3.5 rounded-xl bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-brand-600/20 transition-all hover:scale-[1.02]"
                   >
-                    <RefreshCw size={14} className={isProcessing ? 'animate-spin' : ''} />
-                    <span>Analyze & Extract Tables</span>
+                    <RefreshCw size={16} className={isProcessing ? 'animate-spin' : ''} />
+                    <span>{tables.length > 0 ? 'Re-Analyze Table' : 'Analyze & Extract Tables'}</span>
                   </button>
                 </div>
-              )}
-
-              {tables.length > 0 && (
-                <div className="mt-6 border-t border-slate-100 dark:border-slate-800 pt-5">
-                  <button
-                    onClick={() => setTables([])}
-                    className="w-full py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-500 font-bold text-xs flex items-center justify-center gap-2 transition-all"
-                  >
-                    <span>Reset Extraction</span>
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <div className="p-4 rounded-xl bg-slate-50/50 dark:bg-slate-900/30 border border-slate-100 dark:border-slate-800 text-[10px] text-slate-400 font-semibold leading-relaxed flex gap-2">
-              <HelpCircle className="w-4 h-4 text-slate-400 shrink-0" />
-              <div>
-                <p className="text-slate-500 dark:text-slate-350 font-bold mb-1">OCR Note</p>
-                This tool reads text PDF data structures. Scanned pages or photo-only files require image-to-text OCR which is not processed by offline client-side extraction.
               </div>
             </div>
+
+            {/* Export Section (Shown once tables extracted) */}
+            {tables.length > 0 && (
+              <div className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-dark-card shadow-sm space-y-3">
+                <h4 className="font-heading text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                  <Download size={16} className="text-emerald-500" />
+                  <span>Download Converted File</span>
+                </h4>
+
+                <button
+                  onClick={downloadExcel}
+                  className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 transition-all hover:scale-[1.02] text-xs"
+                >
+                  <Download size={16} />
+                  <span>Export Excel Workbook (.xlsx)</span>
+                </button>
+
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <button
+                    onClick={downloadCsv}
+                    className="py-2.5 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-300 font-bold rounded-xl flex items-center justify-center gap-1.5 transition-colors text-xs"
+                  >
+                    <Download size={14} />
+                    <span>CSV (.csv)</span>
+                  </button>
+
+                  <button
+                    onClick={downloadJson}
+                    className="py-2.5 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-300 font-bold rounded-xl flex items-center justify-center gap-1.5 transition-colors text-xs"
+                  >
+                    <FileCode size={14} />
+                    <span>JSON (.json)</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Help / Privacy Note */}
+            <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 text-[11px] text-slate-500 dark:text-slate-400 font-medium leading-relaxed flex gap-2.5">
+              <HelpCircle className="w-5 h-5 text-brand-500 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold text-slate-700 dark:text-slate-300 mb-0.5">100% Client-Side Privacy</p>
+                Your PDF document is analyzed directly in your web browser. No files are uploaded to remote servers or third-party storage.
+              </div>
+            </div>
+
           </div>
         </div>
       )}

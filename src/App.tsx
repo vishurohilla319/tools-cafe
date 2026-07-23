@@ -34,6 +34,7 @@ import ComingSoonTool from './pages/Tools/ComingSoonTool';
 
 // New PDF Conversion Tools
 import WordToPdf from './pages/Tools/WordToPdf';
+import PdfToExcel from './pages/Tools/PdfToExcel';
 
 // New Image Resizing/Cropping Tools
 import ImageResizer from './pages/Tools/ImageResizer';

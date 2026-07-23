@@ -139,6 +139,16 @@ export const toolsList: Tool[] = [
     isPopular: true,
     isClientSide: true
   },
+  {
+    id: 'pdf-to-excel',
+    nameKey: 'tool.pdfToExcel.title',
+    descKey: 'tool.pdfToExcel.desc',
+    route: '/tools/pdf-to-excel',
+    category: 'pdf',
+    icon: 'FileSpreadsheet',
+    isPopular: true,
+    isClientSide: true
+  },
 
   // Image Tools
   {

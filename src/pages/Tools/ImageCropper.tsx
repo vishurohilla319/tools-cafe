@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Download, Crop, RotateCw, ZoomIn, ZoomOut, Check, RefreshCw, Sliders, FileImage } from 'lucide-react';
+import { Download, Crop, RotateCw, ZoomIn, ZoomOut, Check, RefreshCw, Sliders, FileImage, Move } from 'lucide-react';
 import FileUpload from '../../components/shared/FileUpload';
 import ToolHeader from '../../components/shared/ToolHeader';
 import { useLanguage } from '../../context/LanguageContext';
@@ -7,21 +7,21 @@ import { useLanguage } from '../../context/LanguageContext';
 type AspectRatioPreset = {
   name: string;
   ratio: number | 'free';
-  width: number;
-  height: number;
 };
 
 const ASPECT_RATIO_PRESETS: AspectRatioPreset[] = [
-  { name: 'Free', ratio: 'free', width: 240, height: 180 },
-  { name: '1:1 (Square)', ratio: 1, width: 220, height: 220 },
-  { name: '16:9 (Cinematic)', ratio: 16 / 9, width: 288, height: 162 },
-  { name: '4:3 (Standard)', ratio: 4 / 3, width: 256, height: 192 },
-  { name: '3:2 (Classic)', ratio: 3 / 2, width: 264, height: 176 },
-  { name: '2:3 (Portrait)', ratio: 2 / 3, width: 176, height: 264 },
-  { name: '9:16 (Vertical)', ratio: 9 / 16, width: 162, height: 288 }
+  { name: 'Free (Custom Handles)', ratio: 'free' },
+  { name: '1:1 (Square)', ratio: 1 },
+  { name: '16:9 (Cinematic)', ratio: 16 / 9 },
+  { name: '4:3 (Standard)', ratio: 4 / 3 },
+  { name: '3:2 (Classic)', ratio: 3 / 2 },
+  { name: '2:3 (Portrait)', ratio: 2 / 3 },
+  { name: '9:16 (Vertical)', ratio: 9 / 16 }
 ];
 
-// Helper to change/inject DPI in JPEG JFIF header
+type DragHandle = 'none' | 'move' | 'tl' | 'tr' | 'bl' | 'br' | 'top' | 'bottom' | 'left' | 'right';
+
+// Helper to inject DPI in JPEG JFIF header
 const changeDpiInJpeg = (blob: Blob, dpi: number): Promise<Blob> => {
   return new Promise((resolve) => {
     const reader = new FileReader();
@@ -32,7 +32,6 @@ const changeDpiInJpeg = (blob: Blob, dpi: number): Promise<Blob> => {
         return;
       }
       const view = new DataView(buffer);
-      // Verify JPEG SOI (0xFFD8)
       if (view.byteLength < 4 || view.getUint16(0) !== 0xFFD8) {
         resolve(blob);
         return;
@@ -42,10 +41,8 @@ const changeDpiInJpeg = (blob: Blob, dpi: number): Promise<Blob> => {
       while (offset + 4 <= view.byteLength) {
         const marker = view.getUint16(offset);
         if (marker === 0xFFE0) {
-          // Found APP0 (JFIF)
           const length = view.getUint16(offset + 2);
           if (offset + 2 + length <= view.byteLength && length >= 14) {
-            // Check for "JFIF\0" identifier
             if (
               view.getUint8(offset + 4) === 0x4A && // 'J'
               view.getUint8(offset + 5) === 0x46 && // 'F'
@@ -53,20 +50,15 @@ const changeDpiInJpeg = (blob: Blob, dpi: number): Promise<Blob> => {
               view.getUint8(offset + 7) === 0x46 && // 'F'
               view.getUint8(offset + 8) === 0x00    // '\0'
             ) {
-              // Set density unit to 1 (dots per inch)
               view.setUint8(offset + 13, 1);
-              // Set X density
               view.setUint16(offset + 14, dpi);
-              // Set Y density
               view.setUint16(offset + 16, dpi);
-              
               resolve(new Blob([buffer], { type: 'image/jpeg' }));
               return;
             }
           }
           offset += length + 2;
         } else if ((marker & 0xFF00) === 0xFF00 && marker !== 0xFFD8 && marker !== 0xFFD9) {
-          // Other marker, skip it
           const length = view.getUint16(offset + 2);
           offset += length + 2;
         } else {
@@ -74,16 +66,13 @@ const changeDpiInJpeg = (blob: Blob, dpi: number): Promise<Blob> => {
         }
       }
       
-      // If APP0 marker is not found, insert one right after SOI
       const app0Segment = new Uint8Array([
-        0xFF, 0xE0, // APP0 marker
-        0x00, 0x10, // length = 16
-        0x4A, 0x46, 0x49, 0x46, 0x00, // JFIF\0
-        0x01, 0x01, // version 1.01
-        0x01,       // density units (1 = DPI)
-        (dpi >> 8) & 0xFF, dpi & 0xFF, // X density
-        (dpi >> 8) & 0xFF, dpi & 0xFF, // Y density
-        0x00, 0x00  // thumbnail width/height
+        0xFF, 0xE0, 0x00, 0x10,
+        0x4A, 0x46, 0x49, 0x46, 0x00,
+        0x01, 0x01, 0x01,
+        (dpi >> 8) & 0xFF, dpi & 0xFF,
+        (dpi >> 8) & 0xFF, dpi & 0xFF,
+        0x00, 0x00
       ]);
       const newBuffer = new Uint8Array(buffer.byteLength + app0Segment.length);
       newBuffer.set(new Uint8Array(buffer.slice(0, 2)), 0);
@@ -103,21 +92,29 @@ export const ImageCropper: React.FC = () => {
   const [imageObj, setImageObj] = useState<HTMLImageElement | null>(null);
   const [originalSizeKb, setOriginalSizeKb] = useState<number>(0);
 
-  // Crop Box & Drag States
+  // Workspace Dimensions
+  const workspaceWidth = 500;
+  const workspaceHeight = 380;
+
+  // Interactive Crop Box Rect state (x, y, width, height) relative to workspace
+  const [cropRect, setCropRect] = useState<{ x: number; y: number; w: number; h: number }>({
+    x: 75,
+    y: 50,
+    w: 350,
+    h: 280
+  });
+
+  // Presets & Modes
   const [cropMode, setCropMode] = useState<'preset' | 'custom-cm'>('preset');
-  const [selectedRatio, setSelectedRatio] = useState<AspectRatioPreset>(ASPECT_RATIO_PRESETS[1]); // Default to 1:1
-  const [cropW, setCropW] = useState<number>(220);
-  const [cropH, setCropH] = useState<number>(220);
+  const [selectedRatio, setSelectedRatio] = useState<AspectRatioPreset>(ASPECT_RATIO_PRESETS[0]); // Default Free
 
   // Custom cm & DPI states
   const [widthCm, setWidthCm] = useState<number>(3.5);
   const [heightCm, setHeightCm] = useState<number>(4.5);
   const [dpi, setDpi] = useState<number>(300);
 
-  // Zoom, pan, rotate
+  // Transformations
   const [zoom, setZoom] = useState<number>(1);
-  const [offsetX, setOffsetX] = useState<number>(0);
-  const [offsetY, setOffsetY] = useState<number>(0);
   const [rotation, setRotation] = useState<number>(0);
 
   // Adjustments
@@ -125,23 +122,24 @@ export const ImageCropper: React.FC = () => {
   const [contrast, setContrast] = useState<number>(100);
   const [isGrayscale, setIsGrayscale] = useState<boolean>(false);
 
-  // Outputs
+  // Output states
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [croppedBlob, setCroppedBlob] = useState<Blob | null>(null);
   const [croppedUrl, setCroppedUrl] = useState<string | null>(null);
   const [croppedSizeKb, setCroppedSizeKb] = useState<number>(0);
 
-  // Canvas Refs
+  // Interactive Dragging Refs & Container Ref
+  const containerRef = useRef<HTMLDivElement>(null);
   const workspaceCanvasRef = useRef<HTMLCanvasElement>(null);
-  const isDraggingRef = useRef<boolean>(false);
+  const activeHandleRef = useRef<DragHandle>('none');
   const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const initialRectRef = useRef<{ x: number; y: number; w: number; h: number }>({ x: 0, y: 0, w: 0, h: 0 });
 
   // Handle files selected
   const handleFilesSelected = (files: File[]) => {
     if (files.length === 0) return;
     const file = files[0];
 
-    // Clean up old URLs
     if (originalUrl) URL.revokeObjectURL(originalUrl);
     if (croppedUrl) URL.revokeObjectURL(croppedUrl);
 
@@ -150,13 +148,10 @@ export const ImageCropper: React.FC = () => {
     setOriginalSizeKb(Math.round(file.size / 1024));
     setOriginalUrl(url);
 
-    // Reset settings & output
     setCroppedBlob(null);
     setCroppedUrl(null);
     setCroppedSizeKb(0);
     setZoom(1);
-    setOffsetX(0);
-    setOffsetY(0);
     setRotation(0);
     setBrightness(100);
     setContrast(100);
@@ -166,145 +161,211 @@ export const ImageCropper: React.FC = () => {
     img.src = url;
     img.onload = () => {
       setImageObj(img);
+      const defaultW = Math.min(workspaceWidth - 60, img.width);
+      const defaultH = Math.min(workspaceHeight - 60, img.height);
+      setCropRect({
+        x: Math.round((workspaceWidth - defaultW) / 2),
+        y: Math.round((workspaceHeight - defaultH) / 2),
+        w: defaultW,
+        h: defaultH
+      });
     };
   };
 
-  // Adjust Crop Box dimensions when preset or custom cm settings change
+  // Adjust crop rect when aspect ratio preset is selected
   useEffect(() => {
-    const workspaceW = 320;
-    const workspaceH = 260;
-
     if (cropMode === 'preset') {
-      if (selectedRatio.ratio === 'free') {
-        setCropW(selectedRatio.width);
-        setCropH(selectedRatio.height);
-      } else {
-        const r = selectedRatio.ratio;
-        if (r > workspaceW / workspaceH) {
-          setCropW(workspaceW);
-          setCropH(Math.round(workspaceW / r));
-        } else {
-          setCropH(workspaceH);
-          setCropW(Math.round(workspaceH * r));
+      if (selectedRatio.ratio !== 'free') {
+        const r = selectedRatio.ratio as number;
+        let newW = cropRect.w;
+        let newH = Math.round(newW / r);
+
+        if (newH > workspaceHeight - 40) {
+          newH = workspaceHeight - 40;
+          newW = Math.round(newH * r);
         }
+
+        setCropRect(prev => ({
+          ...prev,
+          w: Math.min(newW, workspaceWidth - 20),
+          h: Math.min(newH, workspaceHeight - 20)
+        }));
       }
     } else {
-      // custom-cm mode
       const w = Math.max(0.1, widthCm);
       const h = Math.max(0.1, heightCm);
       const r = w / h;
-      if (r > workspaceW / workspaceH) {
-        setCropW(workspaceW);
-        setCropH(Math.round(workspaceW / r));
-      } else {
-        setCropH(workspaceH);
-        setCropW(Math.round(workspaceH * r));
+      let newW = 280;
+      let newH = Math.round(newW / r);
+      if (newH > workspaceHeight - 40) {
+        newH = workspaceHeight - 40;
+        newW = Math.round(newH * r);
       }
+      setCropRect(prev => ({
+        ...prev,
+        w: newW,
+        h: newH
+      }));
     }
-    // Reset offset and zoom to avoid weird positioning
-    setOffsetX(0);
-    setOffsetY(0);
-    setZoom(1);
-    setCroppedUrl(null);
-    setCroppedBlob(null);
   }, [cropMode, selectedRatio, widthCm, heightCm]);
 
-  // Re-draw workspace preview canvas
+  // Render background image on canvas
   useEffect(() => {
     if (!imageObj || !workspaceCanvasRef.current) return;
-
     const canvas = workspaceCanvasRef.current;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     ctx.save();
-
-    // Apply adjustments
     let filterString = `brightness(${brightness}%) contrast(${contrast}%)`;
     if (isGrayscale) filterString += ' grayscale(100%)';
     ctx.filter = filterString;
 
-    // Center workspace coords
     const centerX = canvas.width / 2;
     const centerY = canvas.height / 2;
-
-    ctx.translate(centerX + offsetX, centerY + offsetY);
+    ctx.translate(centerX, centerY);
     ctx.rotate((rotation * Math.PI) / 180);
 
-    // Calculate baseline fitting scale
     const baseScale = Math.min(canvas.width / imageObj.width, canvas.height / imageObj.height);
     const drawWidth = imageObj.width * baseScale * zoom;
     const drawHeight = imageObj.height * baseScale * zoom;
 
-    // Draw centering
     ctx.drawImage(imageObj, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
-
     ctx.restore();
-  }, [imageObj, zoom, offsetX, offsetY, rotation, brightness, contrast, isGrayscale]);
+  }, [imageObj, zoom, rotation, brightness, contrast, isGrayscale]);
 
-  // Dragging event handlers
-  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!imageObj) return;
-    isDraggingRef.current = true;
+  /**
+   * Universal Handle Pointer Drag Handler
+   */
+  const startDrag = (e: React.PointerEvent | React.MouseEvent, handle: DragHandle) => {
+    e.stopPropagation();
+    e.preventDefault();
+
+    activeHandleRef.current = handle;
     dragStartRef.current = { x: e.clientX, y: e.clientY };
+    initialRectRef.current = { ...cropRect };
+
+    const handlePointerMove = (moveEvt: PointerEvent | MouseEvent) => {
+      if (activeHandleRef.current === 'none') return;
+      const container = containerRef.current;
+      if (!container) return;
+
+      const containerRect = container.getBoundingClientRect();
+      const scaleX = workspaceWidth / containerRect.width;
+      const scaleY = workspaceHeight / containerRect.height;
+
+      const dx = (moveEvt.clientX - dragStartRef.current.x) * scaleX;
+      const dy = (moveEvt.clientY - dragStartRef.current.y) * scaleY;
+      const init = initialRectRef.current;
+      const minSize = 30;
+
+      let newX = init.x;
+      let newY = init.y;
+      let newW = init.w;
+      let newH = init.h;
+
+      const active = activeHandleRef.current;
+
+      if (active === 'move') {
+        newX = Math.max(0, Math.min(workspaceWidth - init.w, init.x + dx));
+        newY = Math.max(0, Math.min(workspaceHeight - init.h, init.y + dy));
+      } else if (active === 'br') {
+        newW = Math.max(minSize, Math.min(workspaceWidth - init.x, init.w + dx));
+        newH = selectedRatio.ratio === 'free' 
+          ? Math.max(minSize, Math.min(workspaceHeight - init.y, init.h + dy)) 
+          : Math.round(newW / (selectedRatio.ratio as number));
+      } else if (active === 'bl') {
+        const possibleW = Math.max(minSize, init.w - dx);
+        newX = init.x + (init.w - possibleW);
+        newW = possibleW;
+        newH = selectedRatio.ratio === 'free' 
+          ? Math.max(minSize, Math.min(workspaceHeight - init.y, init.h + dy)) 
+          : Math.round(newW / (selectedRatio.ratio as number));
+      } else if (active === 'tr') {
+        newW = Math.max(minSize, Math.min(workspaceWidth - init.x, init.w + dx));
+        const possibleH = selectedRatio.ratio === 'free' 
+          ? Math.max(minSize, init.h - dy) 
+          : Math.round(newW / (selectedRatio.ratio as number));
+        newY = init.y + (init.h - possibleH);
+        newH = possibleH;
+      } else if (active === 'tl') {
+        const possibleW = Math.max(minSize, init.w - dx);
+        newX = init.x + (init.w - possibleW);
+        newW = possibleW;
+        const possibleH = selectedRatio.ratio === 'free' 
+          ? Math.max(minSize, init.h - dy) 
+          : Math.round(newW / (selectedRatio.ratio as number));
+        newY = init.y + (init.h - possibleH);
+        newH = possibleH;
+      } else if (active === 'right') {
+        newW = Math.max(minSize, Math.min(workspaceWidth - init.x, init.w + dx));
+      } else if (active === 'left') {
+        const possibleW = Math.max(minSize, init.w - dx);
+        newX = init.x + (init.w - possibleW);
+        newW = possibleW;
+      } else if (active === 'bottom') {
+        newH = Math.max(minSize, Math.min(workspaceHeight - init.y, init.h + dy));
+      } else if (active === 'top') {
+        const possibleH = Math.max(minSize, init.h - dy);
+        newY = init.y + (init.h - possibleH);
+        newH = possibleH;
+      }
+
+      setCropRect({
+        x: Math.round(newX),
+        y: Math.round(newY),
+        w: Math.round(newW),
+        h: Math.round(newH)
+      });
+    };
+
+    const handlePointerUp = () => {
+      activeHandleRef.current = 'none';
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
   };
 
-  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDraggingRef.current || !imageObj) return;
-    const dx = e.clientX - dragStartRef.current.x;
-    const dy = e.clientY - dragStartRef.current.y;
-    setOffsetX((prev) => prev + dx);
-    setOffsetY((prev) => prev + dy);
-    dragStartRef.current = { x: e.clientX, y: e.clientY };
-  };
-
-  const handleMouseUp = () => {
-    isDraggingRef.current = false;
-  };
-
-  // Touch handlers for mobile devices
-  const handleTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
-    if (!imageObj || e.touches.length === 0) return;
-    isDraggingRef.current = true;
-    dragStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-  };
-
-  const handleTouchMove = (e: React.TouchEvent<HTMLCanvasElement>) => {
-    if (!isDraggingRef.current || !imageObj || e.touches.length === 0) return;
-    const dx = e.touches[0].clientX - dragStartRef.current.x;
-    const dy = e.touches[0].clientY - dragStartRef.current.y;
-    setOffsetX((prev) => prev + dx);
-    setOffsetY((prev) => prev + dy);
-    dragStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-  };
-
-  // Execute cropping logic on high-res canvas
+  /**
+   * Execute Cropping based on exact cropRect
+   */
   const triggerCrop = async () => {
     if (!imageObj || !workspaceCanvasRef.current) return;
     setIsProcessing(true);
 
     try {
-      const workspaceCanvas = workspaceCanvasRef.current;
-      const baseScale = Math.min(workspaceCanvas.width / imageObj.width, workspaceCanvas.height / imageObj.height);
-      
-      // Calculate resolution multiplier mapping workspace to original dimensions
-      const resScale = imageObj.width / (imageObj.width * baseScale * zoom);
+      const canvas = workspaceCanvasRef.current;
+      const baseScale = Math.min(canvas.width / imageObj.width, canvas.height / imageObj.height);
+      const drawWidth = imageObj.width * baseScale * zoom;
+      const drawHeight = imageObj.height * baseScale * zoom;
+
+      const imgOriginX = (canvas.width - drawWidth) / 2;
+      const imgOriginY = (canvas.height - drawHeight) / 2;
+
+      const cropRelativeX = (cropRect.x - imgOriginX) / drawWidth;
+      const cropRelativeY = (cropRect.y - imgOriginY) / drawHeight;
+      const cropRelativeW = cropRect.w / drawWidth;
+      const cropRelativeH = cropRect.h / drawHeight;
+
+      const srcX = cropRelativeX * imageObj.width;
+      const srcY = cropRelativeY * imageObj.height;
+      const srcW = cropRelativeW * imageObj.width;
+      const srcH = cropRelativeH * imageObj.height;
 
       let outputW: number;
       let outputH: number;
-      let drawScale: number;
 
       if (cropMode === 'preset') {
-        outputW = Math.round(cropW * resScale);
-        outputH = Math.round(cropH * resScale);
-        drawScale = resScale;
+        outputW = Math.max(1, Math.round(srcW));
+        outputH = Math.max(1, Math.round(srcH));
       } else {
         outputW = Math.round((widthCm / 2.54) * dpi);
         outputH = Math.round((heightCm / 2.54) * dpi);
-        drawScale = outputW / cropW;
       }
 
       const renderCanvas = document.createElement('canvas');
@@ -316,20 +377,18 @@ export const ImageCropper: React.FC = () => {
       rCtx.imageSmoothingEnabled = true;
       rCtx.imageSmoothingQuality = 'high';
 
-      // Apply filters
       let filterString = `brightness(${brightness}%) contrast(${contrast}%)`;
       if (isGrayscale) filterString += ' grayscale(100%)';
       rCtx.filter = filterString;
 
-      // Draw image centered and scaled
-      rCtx.translate(outputW / 2 + offsetX * drawScale, outputH / 2 + offsetY * drawScale);
-      rCtx.rotate((rotation * Math.PI) / 180);
+      if (rotation === 0) {
+        rCtx.drawImage(imageObj, srcX, srcY, srcW, srcH, 0, 0, outputW, outputH);
+      } else {
+        rCtx.translate(outputW / 2, outputH / 2);
+        rCtx.rotate((rotation * Math.PI) / 180);
+        rCtx.drawImage(imageObj, srcX, srcY, srcW, srcH, -outputW / 2, -outputH / 2, outputW, outputH);
+      }
 
-      const drawW = imageObj.width * baseScale * zoom * drawScale;
-      const drawH = imageObj.height * baseScale * zoom * drawScale;
-      rCtx.drawImage(imageObj, -drawW / 2, -drawH / 2, drawW, drawH);
-
-      // Export
       renderCanvas.toBlob(
         async (blob) => {
           if (blob) {
@@ -359,7 +418,7 @@ export const ImageCropper: React.FC = () => {
     const link = document.createElement('a');
     const baseName = originalFile.name.replace(/\.[^/.]+$/, "");
     link.href = URL.createObjectURL(croppedBlob);
-    link.download = `${baseName}_cropped.${selectedRatio.ratio === 'free' ? 'jpg' : 'jpg'}`;
+    link.download = `${baseName}_cropped.jpg`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -375,6 +434,7 @@ export const ImageCropper: React.FC = () => {
     setCroppedUrl(null);
     setCroppedSizeKb(0);
   };
+
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
       <ToolHeader
@@ -391,7 +451,7 @@ export const ImageCropper: React.FC = () => {
             onFilesSelected={handleFilesSelected}
             accept="image/*"
             maxSizeMB={25}
-            label="Upload an image to crop"
+            label="Upload an image to crop with 4-corner handles"
           />
         </div>
       ) : (
@@ -400,70 +460,128 @@ export const ImageCropper: React.FC = () => {
           <div className="lg:col-span-7 flex flex-col space-y-4">
             <div className="flex justify-between items-center bg-white dark:bg-dark-card border border-slate-200 dark:border-slate-800 p-4 rounded-xl shadow-sm">
               <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
-                Interactive Workspace {originalSizeKb > 0 ? `(Original: ${originalSizeKb} KB)` : ''}
+                Interactive Crop Workspace {originalSizeKb > 0 ? `(Original: ${originalSizeKb} KB)` : ''}
               </span>
               <button
                 onClick={clearTool}
                 className="text-xs font-bold text-red-500 hover:underline flex items-center gap-1.5"
               >
                 <RefreshCw size={12} />
-                Upload New
+                Upload New Image
               </button>
             </div>
 
-            {/* Visual Canvas and Mask overlay */}
-            <div className="flex-1 flex flex-col items-center justify-center p-8 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900/50 min-h-[380px] relative overflow-hidden select-none">
+            {/* Visual Canvas with Interactive 4 Corner Handles Overlay */}
+            <div 
+              ref={containerRef}
+              className="flex-1 flex items-center justify-center p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-900 min-h-[420px] relative overflow-hidden select-none touch-none"
+            >
               {isProcessing && (
-                <div className="absolute inset-0 bg-slate-950/70 z-20 flex flex-col items-center justify-center text-white p-4 text-center">
+                <div className="absolute inset-0 bg-slate-950/80 z-40 flex flex-col items-center justify-center text-white p-4 text-center">
                   <div className="w-8 h-8 border-4 border-brand-500 border-t-transparent rounded-full animate-spin mb-3" />
                   <p className="text-xs font-bold">Cropping image...</p>
                 </div>
               )}
 
-              {/* Crop Cutout Overlay (Dynamic sizing depending on Aspect Ratio) */}
+              {/* Background Rendered Image Canvas */}
+              <canvas
+                ref={workspaceCanvasRef}
+                width={workspaceWidth}
+                height={workspaceHeight}
+                className="w-full h-full object-contain pointer-events-none"
+              />
+
+              {/* Interactive Crop Box Overlay with Corner Drag Handles */}
               <div
-                style={{ width: `${cropW}px`, height: `${cropH}px` }}
-                className="absolute rounded-sm overflow-hidden border-2 border-brand-500 shadow-[0_0_0_9999px_rgba(15,23,42,0.65)] z-10 pointer-events-none transition-all duration-200 ease-out"
+                style={{
+                  left: `${(cropRect.x / workspaceWidth) * 100}%`,
+                  top: `${(cropRect.y / workspaceHeight) * 100}%`,
+                  width: `${(cropRect.w / workspaceWidth) * 100}%`,
+                  height: `${(cropRect.h / workspaceHeight) * 100}%`
+                }}
+                onPointerDown={(e) => startDrag(e, 'move')}
+                className="absolute border-2 border-brand-400 shadow-[0_0_0_9999px_rgba(15,23,42,0.65)] z-20 pointer-events-auto cursor-move"
               >
-                {/* 3x3 Grid Overlay */}
-                <div className="absolute inset-0 grid grid-cols-3 divide-x divide-white/20">
+                {/* 3x3 Grid Lines */}
+                <div className="absolute inset-0 grid grid-cols-3 divide-x divide-white/25 pointer-events-none">
                   <div />
                   <div />
                   <div />
                 </div>
-                <div className="absolute inset-0 grid grid-rows-3 divide-y divide-white/20">
+                <div className="absolute inset-0 grid grid-rows-3 divide-y divide-white/25 pointer-events-none">
                   <div />
                   <div />
                   <div />
+                </div>
+
+                {/* 4 Corner Drag Handles with direct pointerdown event triggers */}
+                <div 
+                  onPointerDown={(e) => startDrag(e, 'tl')}
+                  title="Drag Top-Left Corner"
+                  className="absolute -left-3 -top-3 w-6 h-6 bg-white border-2 border-brand-500 rounded-full shadow-xl cursor-nwse-resize hover:scale-125 transition-transform flex items-center justify-center z-30"
+                >
+                  <div className="w-2 h-2 bg-brand-500 rounded-full" />
+                </div>
+
+                <div 
+                  onPointerDown={(e) => startDrag(e, 'tr')}
+                  title="Drag Top-Right Corner"
+                  className="absolute -right-3 -top-3 w-6 h-6 bg-white border-2 border-brand-500 rounded-full shadow-xl cursor-nesw-resize hover:scale-125 transition-transform flex items-center justify-center z-30"
+                >
+                  <div className="w-2 h-2 bg-brand-500 rounded-full" />
+                </div>
+
+                <div 
+                  onPointerDown={(e) => startDrag(e, 'bl')}
+                  title="Drag Bottom-Left Corner"
+                  className="absolute -left-3 -bottom-3 w-6 h-6 bg-white border-2 border-brand-500 rounded-full shadow-xl cursor-nesw-resize hover:scale-125 transition-transform flex items-center justify-center z-30"
+                >
+                  <div className="w-2 h-2 bg-brand-500 rounded-full" />
+                </div>
+
+                <div 
+                  onPointerDown={(e) => startDrag(e, 'br')}
+                  title="Drag Bottom-Right Corner"
+                  className="absolute -right-3 -bottom-3 w-6 h-6 bg-white border-2 border-brand-500 rounded-full shadow-xl cursor-nwse-resize hover:scale-125 transition-transform flex items-center justify-center z-30"
+                >
+                  <div className="w-2 h-2 bg-brand-500 rounded-full" />
+                </div>
+
+                {/* 4 Edge Midpoint Drag Handles */}
+                <div 
+                  onPointerDown={(e) => startDrag(e, 'top')}
+                  className="absolute left-1/2 -top-2.5 -translate-x-1/2 w-8 h-4 bg-white border-2 border-brand-500 rounded-full shadow-md cursor-ns-resize z-30" 
+                />
+                <div 
+                  onPointerDown={(e) => startDrag(e, 'bottom')}
+                  className="absolute left-1/2 -bottom-2.5 -translate-x-1/2 w-8 h-4 bg-white border-2 border-brand-500 rounded-full shadow-md cursor-ns-resize z-30" 
+                />
+                <div 
+                  onPointerDown={(e) => startDrag(e, 'left')}
+                  className="absolute top-1/2 -left-2.5 -translate-y-1/2 w-4 h-8 bg-white border-2 border-brand-500 rounded-full shadow-md cursor-ew-resize z-30" 
+                />
+                <div 
+                  onPointerDown={(e) => startDrag(e, 'right')}
+                  className="absolute top-1/2 -right-2.5 -translate-y-1/2 w-4 h-8 bg-white border-2 border-brand-500 rounded-full shadow-md cursor-ew-resize z-30" 
+                />
+
+                {/* Crop Box Size Indicator Badge */}
+                <div className="absolute -top-8 left-1/2 -translate-x-1/2 text-[10px] font-bold text-white bg-brand-600 px-2 py-0.5 rounded shadow pointer-events-none whitespace-nowrap">
+                  {cropRect.w} × {cropRect.h} px
                 </div>
               </div>
 
-              {/* Interaction Workspace Canvas */}
-              <canvas
-                ref={workspaceCanvasRef}
-                width={360}
-                height={320}
-                onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
-                onMouseUp={handleMouseUp}
-                onMouseLeave={handleMouseUp}
-                onTouchStart={handleTouchStart}
-                onTouchMove={handleTouchMove}
-                onTouchEnd={handleMouseUp}
-                className="absolute inset-0 w-full h-full cursor-move object-contain"
-                title="Drag to reposition, use sliders below to adjust zoom & details"
-              />
-
-              <div className="absolute bottom-3 right-3 text-[9px] font-bold text-slate-400 bg-slate-950/80 px-2 py-0.5 rounded pointer-events-none z-10">
-                Drag to reposition photo
+              <div className="absolute bottom-3 right-3 text-[10px] font-bold text-slate-300 bg-slate-950/80 px-2.5 py-1 rounded-md pointer-events-none z-30 flex items-center gap-1.5">
+                <Move size={12} className="text-brand-400" />
+                <span>Drag white corner handles to crop</span>
               </div>
             </div>
 
-            {/* Quick adjust tools */}
+            {/* Controls Bar */}
             <div className="flex justify-center gap-4 bg-white dark:bg-dark-card border border-slate-200 dark:border-slate-800 p-4 rounded-xl shadow-sm">
               <button
                 type="button"
-                onClick={() => setZoom((z) => Math.max(0.1, z - 0.1))}
+                onClick={() => setZoom((z) => Math.max(0.2, z - 0.1))}
                 className="p-2 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 hover:text-brand-500 transition-colors"
                 title="Zoom Out"
               >
@@ -495,11 +613,10 @@ export const ImageCropper: React.FC = () => {
 
           {/* Right Column: Settings Panel */}
           <div className="lg:col-span-5 flex flex-col space-y-6">
-            {/* Aspect Ratio & Custom Size Panel */}
             <div className="bg-white dark:bg-dark-card border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-3">
               <h3 className="font-heading text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2 mb-2">
                 <FileImage size={16} className="text-brand-500" />
-                Crop Dimension Options
+                Aspect Ratio & Presets
               </h3>
 
               {/* Crop Mode Selection Tabs */}
@@ -513,7 +630,7 @@ export const ImageCropper: React.FC = () => {
                       : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-350'
                   }`}
                 >
-                  Aspect Ratio Presets
+                  Presets & Free Handle
                 </button>
                 <button
                   type="button"
@@ -529,57 +646,22 @@ export const ImageCropper: React.FC = () => {
               </div>
 
               {cropMode === 'preset' ? (
-                <>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-2">
-                    {ASPECT_RATIO_PRESETS.map((preset) => (
-                      <button
-                        key={preset.name}
-                        type="button"
-                        onClick={() => setSelectedRatio(preset)}
-                        className={`py-2 text-[11px] font-bold rounded-lg border transition-colors text-center ${
-                          selectedRatio.name === preset.name
-                            ? 'border-brand-500 bg-brand-500/10 text-brand-500'
-                            : 'border-slate-200 dark:border-slate-850 hover:bg-slate-50 dark:hover:bg-slate-850/50'
-                        }`}
-                      >
-                        {preset.name}
-                      </button>
-                    ))}
-                  </div>
-
-                  {selectedRatio.ratio === 'free' && (
-                    <div className="space-y-4 pt-3 border-t border-slate-100 dark:border-slate-850">
-                      <div className="space-y-1">
-                        <div className="flex justify-between">
-                          <label className="text-[11px] font-bold text-slate-500">Crop Box Width</label>
-                          <span className="text-[11px] font-bold text-brand-500">{cropW}px</span>
-                        </div>
-                        <input
-                          type="range"
-                          min="100"
-                          max="320"
-                          value={cropW}
-                          onChange={(e) => setCropW(parseInt(e.target.value))}
-                          className="w-full h-1 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-brand-500"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <div className="flex justify-between">
-                          <label className="text-[11px] font-bold text-slate-500">Crop Box Height</label>
-                          <span className="text-[11px] font-bold text-brand-500">{cropH}px</span>
-                        </div>
-                        <input
-                          type="range"
-                          min="100"
-                          max="260"
-                          value={cropH}
-                          onChange={(e) => setCropH(parseInt(e.target.value))}
-                          className="w-full h-1 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-brand-500"
-                        />
-                      </div>
-                    </div>
-                  )}
-                </>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-2">
+                  {ASPECT_RATIO_PRESETS.map((preset) => (
+                    <button
+                      key={preset.name}
+                      type="button"
+                      onClick={() => setSelectedRatio(preset)}
+                      className={`py-2 text-[11px] font-bold rounded-lg border transition-colors text-center ${
+                        selectedRatio.name === preset.name
+                          ? 'border-brand-500 bg-brand-500/10 text-brand-500'
+                          : 'border-slate-200 dark:border-slate-850 hover:bg-slate-50 dark:hover:bg-slate-850/50'
+                      }`}
+                    >
+                      {preset.name}
+                    </button>
+                  ))}
+                </div>
               ) : (
                 <div className="space-y-4 pt-2">
                   <div className="grid grid-cols-2 gap-4">
@@ -624,7 +706,6 @@ export const ImageCropper: React.FC = () => {
                         className="col-span-2 px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 focus:outline-none focus:border-brand-500 font-bold text-slate-850 dark:text-slate-100"
                       />
                       <button
-                        key="dpi-150"
                         type="button"
                         onClick={() => setDpi(150)}
                         className={`py-2 text-[10px] font-bold rounded-lg border transition-colors text-center ${
@@ -636,7 +717,6 @@ export const ImageCropper: React.FC = () => {
                         150
                       </button>
                       <button
-                        key="dpi-300"
                         type="button"
                         onClick={() => setDpi(300)}
                         className={`py-2 text-[10px] font-bold rounded-lg border transition-colors text-center ${
@@ -647,15 +727,6 @@ export const ImageCropper: React.FC = () => {
                       >
                         300
                       </button>
-                    </div>
-                  </div>
-
-                  <div className="p-3 bg-slate-50 dark:bg-slate-900/50 rounded-lg border border-slate-100 dark:border-slate-850 text-center">
-                    <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                      Resulting Output Size
-                    </div>
-                    <div className="text-sm font-bold text-slate-700 dark:text-slate-300 mt-0.5">
-                      {Math.round((widthCm / 2.54) * dpi)} × {Math.round((heightCm / 2.54) * dpi)} px
                     </div>
                   </div>
                 </div>
@@ -669,7 +740,6 @@ export const ImageCropper: React.FC = () => {
                 Adjustments
               </h3>
 
-              {/* Brightness */}
               <div className="space-y-1.5">
                 <div className="flex justify-between">
                   <label className="text-[11px] font-bold text-slate-500">Brightness</label>
@@ -685,7 +755,6 @@ export const ImageCropper: React.FC = () => {
                 />
               </div>
 
-              {/* Contrast */}
               <div className="space-y-1.5">
                 <div className="flex justify-between">
                   <label className="text-[11px] font-bold text-slate-500">Contrast</label>
@@ -701,7 +770,6 @@ export const ImageCropper: React.FC = () => {
                 />
               </div>
 
-              {/* Fine rotation slider */}
               <div className="space-y-1.5">
                 <div className="flex justify-between">
                   <label className="text-[11px] font-bold text-slate-500">Fine Rotation</label>
@@ -717,7 +785,6 @@ export const ImageCropper: React.FC = () => {
                 />
               </div>
 
-              {/* Grayscale Toggle */}
               <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-850">
                 <span className="text-[11px] font-bold text-slate-500">Black & White Effect</span>
                 <label className="relative inline-flex items-center cursor-pointer">
@@ -738,10 +805,10 @@ export const ImageCropper: React.FC = () => {
                 type="button"
                 onClick={triggerCrop}
                 disabled={isProcessing}
-                className="w-full py-3 bg-brand-500 hover:bg-brand-650 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-98 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-98 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
               >
                 <Crop size={14} />
-                Crop Image
+                <span>Crop Selected Region</span>
               </button>
 
               {croppedUrl && (
@@ -752,7 +819,7 @@ export const ImageCropper: React.FC = () => {
                       alt="Cropped Output"
                       className="max-h-[160px] object-contain rounded border border-slate-200 dark:border-slate-800 shadow-sm"
                     />
-                    <span className="text-[10px] text-green-600 dark:text-green-400 font-bold mt-2 flex items-center gap-1">
+                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold mt-2 flex items-center gap-1">
                       <Check size={12} />
                       Crop applied! Output size: {croppedSizeKb} KB
                     </span>
@@ -761,7 +828,7 @@ export const ImageCropper: React.FC = () => {
                   <button
                     type="button"
                     onClick={handleDownload}
-                    className="w-full py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-98 flex items-center justify-center gap-2 cursor-pointer"
+                    className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-98 flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <Download size={14} />
                     Download Cropped Image
