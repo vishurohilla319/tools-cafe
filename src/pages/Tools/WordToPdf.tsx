@@ -146,9 +146,9 @@ export const WordToPdf: React.FC = () => {
             const opt = {
               margin: 0,
               filename: 'document.pdf',
-              image: { type: 'jpeg', quality: 0.98 },
+              image: { type: 'png' },
               html2canvas: { 
-                scale: 2.2, 
+                scale: 3.0, 
                 useCORS: true, 
                 logging: false,
                 backgroundColor: '#ffffff'

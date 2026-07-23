@@ -167,7 +167,7 @@ export const MergeJpgPdf: React.FC = () => {
           const reader = new FileReader();
           reader.onload = () => resolve(new Uint8Array(reader.result as ArrayBuffer));
           reader.readAsArrayBuffer(blob);
-        }, format, 0.95);
+        }, format, 1.0);
       };
       img.onerror = () => reject(new Error('Image failed to load'));
     });

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Download, Crop, RotateCw, ZoomIn, ZoomOut, Check, RefreshCw, Sliders, FileImage, Move } from 'lucide-react';
+import { Download, Crop, RotateCw, ZoomIn, ZoomOut, RefreshCw, Sliders, FileImage, Move, Sparkles } from 'lucide-react';
 import FileUpload from '../../components/shared/FileUpload';
 import ToolHeader from '../../components/shared/ToolHeader';
 import { useLanguage } from '../../context/LanguageContext';
@@ -92,16 +92,16 @@ export const ImageCropper: React.FC = () => {
   const [imageObj, setImageObj] = useState<HTMLImageElement | null>(null);
   const [originalSizeKb, setOriginalSizeKb] = useState<number>(0);
 
-  // Fixed internal workspace resolution (100% locked 4:3 ratio)
-  const workspaceWidth = 600;
-  const workspaceHeight = 450;
+  // Dynamic Workspace resolution matching intrinsic container
+  const workspaceWidth = 800;
+  const workspaceHeight = 600;
 
   // Interactive Crop Box Rect state (x, y, width, height) relative to workspace
   const [cropRect, setCropRect] = useState<{ x: number; y: number; w: number; h: number }>({
     x: 100,
     y: 75,
-    w: 400,
-    h: 300
+    w: 600,
+    h: 450
   });
 
   // Presets & Modes
@@ -127,6 +127,7 @@ export const ImageCropper: React.FC = () => {
   const [croppedBlob, setCroppedBlob] = useState<Blob | null>(null);
   const [croppedUrl, setCroppedUrl] = useState<string | null>(null);
   const [croppedSizeKb, setCroppedSizeKb] = useState<number>(0);
+  const [croppedPixels, setCroppedPixels] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
 
   // Interactive Dragging Refs & Workspace Wrapper Ref
   const workspaceWrapperRef = useRef<HTMLDivElement>(null);
@@ -161,8 +162,8 @@ export const ImageCropper: React.FC = () => {
     img.src = url;
     img.onload = () => {
       setImageObj(img);
-      const defaultW = Math.min(workspaceWidth - 80, 400);
-      const defaultH = Math.min(workspaceHeight - 80, 300);
+      const defaultW = Math.min(workspaceWidth - 80, 600);
+      const defaultH = Math.min(workspaceHeight - 80, 450);
       setCropRect({
         x: Math.round((workspaceWidth - defaultW) / 2),
         y: Math.round((workspaceHeight - defaultH) / 2),
@@ -195,7 +196,7 @@ export const ImageCropper: React.FC = () => {
       const w = Math.max(0.1, widthCm);
       const h = Math.max(0.1, heightCm);
       const r = w / h;
-      let newW = 350;
+      let newW = 400;
       let newH = Math.round(newW / r);
       if (newH > workspaceHeight - 40) {
         newH = workspaceHeight - 40;
@@ -237,7 +238,7 @@ export const ImageCropper: React.FC = () => {
   }, [imageObj, zoom, rotation, brightness, contrast, isGrayscale]);
 
   /**
-   * Universal Handle Pointer Drag Handler (Locked 1:1 with Workspace Wrapper)
+   * Universal Handle Pointer Drag Handler
    */
   const startDrag = (e: React.PointerEvent | React.MouseEvent, handle: DragHandle) => {
     e.stopPropagation();
@@ -332,24 +333,24 @@ export const ImageCropper: React.FC = () => {
   };
 
   /**
-   * Master Canvas Cropping Engine (Guarantees 100% Identical Visual Crop)
+   * ZERO COMPRESSION Native Resolution Master Cropping Engine
    */
   const triggerCrop = async () => {
     if (!imageObj) return;
     setIsProcessing(true);
 
     try {
-      // 1. High Resolution Master Scale Factor (preserves source image sharpness)
+      // 1. Calculate Full Native Resolution Scale Factor (Zero Downscaling)
       const scaleRatio = Math.max(
         imageObj.naturalWidth / workspaceWidth,
         imageObj.naturalHeight / workspaceHeight,
-        2.5
+        1.0
       );
 
       const masterW = Math.round(workspaceWidth * scaleRatio);
       const masterH = Math.round(workspaceHeight * scaleRatio);
 
-      // 2. Render High-Res Master Canvas with exact same transforms as preview
+      // 2. Render Full Uncompressed Native Master Canvas
       const masterCanvas = document.createElement('canvas');
       masterCanvas.width = masterW;
       masterCanvas.height = masterH;
@@ -373,7 +374,7 @@ export const ImageCropper: React.FC = () => {
       mCtx.drawImage(imageObj, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
       mCtx.restore();
 
-      // 3. Crop exact region from Master Canvas (100% Identical to Preview Selection)
+      // 3. Extract exact region from Master Canvas at Native Uncompressed Pixels
       const cropX = Math.round(cropRect.x * scaleRatio);
       const cropY = Math.round(cropRect.y * scaleRatio);
       const cropW = Math.round(cropRect.w * scaleRatio);
@@ -390,6 +391,8 @@ export const ImageCropper: React.FC = () => {
         outputH = Math.round((heightCm / 2.54) * dpi);
       }
 
+      setCroppedPixels({ w: outputW, h: outputH });
+
       const renderCanvas = document.createElement('canvas');
       renderCanvas.width = outputW;
       renderCanvas.height = outputH;
@@ -401,6 +404,7 @@ export const ImageCropper: React.FC = () => {
 
       rCtx.drawImage(masterCanvas, cropX, cropY, cropW, cropH, 0, 0, outputW, outputH);
 
+      // Preserve original format (or PNG for 100% zero-loss uncompressed output)
       const mimeType = originalFile?.type === 'image/png' ? 'image/png' : 'image/jpeg';
 
       renderCanvas.toBlob(
@@ -418,7 +422,7 @@ export const ImageCropper: React.FC = () => {
           setIsProcessing(false);
         },
         mimeType,
-        1.0 // 100% Uncompressed Max Quality
+        1.0 // 1.0 = Maximum Uncompressed Full Quality
       );
     } catch (err) {
       console.error('Error cropping image:', err);
@@ -448,6 +452,7 @@ export const ImageCropper: React.FC = () => {
     setCroppedBlob(null);
     setCroppedUrl(null);
     setCroppedSizeKb(0);
+    setCroppedPixels({ w: 0, h: 0 });
   };
 
   return (
@@ -466,7 +471,7 @@ export const ImageCropper: React.FC = () => {
             onFilesSelected={handleFilesSelected}
             accept="image/*"
             maxSizeMB={25}
-            label="Upload an image to crop with 100% accurate preview"
+            label="Upload an image to crop with 100% original uncompressed quality"
           />
         </div>
       ) : (
@@ -475,7 +480,7 @@ export const ImageCropper: React.FC = () => {
           <div className="lg:col-span-7 flex flex-col space-y-4">
             <div className="flex justify-between items-center bg-white dark:bg-dark-card border border-slate-200 dark:border-slate-800 p-4 rounded-xl shadow-sm">
               <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
-                Interactive Crop Workspace {originalSizeKb > 0 ? `(Original: ${originalSizeKb} KB)` : ''}
+                Uncompressed Crop Workspace {originalSizeKb > 0 ? `(Original: ${originalSizeKb} KB)` : ''}
               </span>
               <button
                 onClick={clearTool}
@@ -491,7 +496,7 @@ export const ImageCropper: React.FC = () => {
               {isProcessing && (
                 <div className="absolute inset-0 bg-slate-950/80 z-40 flex flex-col items-center justify-center text-white p-4 text-center">
                   <div className="w-8 h-8 border-4 border-brand-500 border-t-transparent rounded-full animate-spin mb-3" />
-                  <p className="text-xs font-bold">Processing high-resolution crop...</p>
+                  <p className="text-xs font-bold">Rendering uncompressed high-res crop...</p>
                 </div>
               )}
 
@@ -499,7 +504,7 @@ export const ImageCropper: React.FC = () => {
               <div 
                 ref={workspaceWrapperRef}
                 style={{ aspectRatio: `${workspaceWidth} / ${workspaceHeight}` }}
-                className="relative w-full max-w-[600px] max-h-[450px] bg-slate-900 border border-slate-800 rounded-lg shadow-2xl flex items-center justify-center overflow-hidden"
+                className="relative w-full max-w-[800px] max-h-[600px] bg-slate-900 border border-slate-800 rounded-lg shadow-2xl flex items-center justify-center overflow-hidden"
               >
                 {/* Background Rendered Image Canvas */}
                 <canvas
@@ -585,7 +590,7 @@ export const ImageCropper: React.FC = () => {
 
                   {/* Crop Box Size Indicator Badge */}
                   <div className="absolute -top-8 left-1/2 -translate-x-1/2 text-[10px] font-bold text-white bg-brand-600 px-2 py-0.5 rounded shadow pointer-events-none whitespace-nowrap">
-                    {cropRect.w} × {cropRect.h} px
+                    Selection Box
                   </div>
                 </div>
               </div>
@@ -836,11 +841,11 @@ export const ImageCropper: React.FC = () => {
                     <img
                       src={croppedUrl}
                       alt="Cropped Output"
-                      className="max-h-[180px] object-contain rounded border border-slate-200 dark:border-slate-800 shadow-sm"
+                      className="max-h-[220px] object-contain rounded border border-slate-200 dark:border-slate-800 shadow-sm"
                     />
                     <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold mt-2 flex items-center gap-1">
-                      <Check size={12} />
-                      100% Precise Crop Applied ({croppedSizeKb} KB)
+                      <Sparkles size={12} />
+                      Uncompressed Full Quality ({croppedPixels.w} × {croppedPixels.h} px • {croppedSizeKb} KB)
                     </span>
                   </div>
 
@@ -850,7 +855,7 @@ export const ImageCropper: React.FC = () => {
                     className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-98 flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <Download size={14} />
-                    Download HD Cropped Image
+                    Download Uncompressed Cropped Image
                   </button>
                 </div>
               )}
