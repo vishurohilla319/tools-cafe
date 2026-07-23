@@ -41,7 +41,7 @@ export const PdfEditor: React.FC = () => {
   const [arrayBuffer, setArrayBuffer] = useState<ArrayBuffer | null>(null);
   const [numPages, setNumPages] = useState<number>(0);
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const [renderScale, setRenderScale] = useState<number>(1.2);
+  const [renderScale, setRenderScale] = useState<number>(2.0);
 
   // PDF.js references
   const pdfDocRef = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
@@ -98,6 +98,9 @@ export const PdfEditor: React.FC = () => {
 
       canvas.height = viewport.height;
       canvas.width = viewport.width;
+
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = 'high';
 
       await page.render({ canvasContext: context, viewport, canvas }).promise;
     } catch (err) {
