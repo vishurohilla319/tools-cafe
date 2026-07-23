@@ -12,7 +12,8 @@ import {
   ChevronLeft, 
   ChevronRight,
   Move,
-  Upload
+  Upload,
+  Layers
 } from 'lucide-react';
 import FileUpload from '../../components/shared/FileUpload';
 import ToolHeader from '../../components/shared/ToolHeader';
@@ -114,7 +115,10 @@ export const PdfEditor: React.FC = () => {
     }
   }, [currentPage, renderScale, pdfDocRef.current]);
 
-  // Handle Image Upload with Natural Aspect Ratio Calculation
+  // Vertical Gap between stacked images (in % of page height)
+  const [verticalGapPct, setVerticalGapPct] = useState<number>(4);
+
+  // Handle Image Upload with Natural Aspect Ratio & Vertical Gap Calculation
   const handleImagesUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -139,26 +143,60 @@ export const PdfEditor: React.FC = () => {
           const widthPct = 25;
           const heightPct = Math.round(widthPct / aspectRatio);
 
-          const newOverlay: PlacedImageOverlay = {
-            id: 'img-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
-            pageNumber: currentPage,
-            fileName: file.name,
-            dataUrl,
-            mimeType: mime,
-            widthPct,
-            heightPct,
-            aspectRatio,
-            xPct: 35, // Centered default X
-            yPct: 35, // Centered default Y
-            opacity: 1.0
-          };
+          setImageOverlays((prev) => {
+            // Find existing images on active page to place next image with vertical gap
+            const pageImgs = prev.filter(i => i.pageNumber === currentPage || i.pageNumber === -1);
+            let nextY = 10;
+            if (pageImgs.length > 0) {
+              const last = pageImgs[pageImgs.length - 1];
+              nextY = last.yPct + last.heightPct + verticalGapPct;
+              if (nextY + heightPct > 92) {
+                nextY = 10;
+              }
+            }
 
-          setImageOverlays((prev) => [...prev, newOverlay]);
-          setSelectedImageId(newOverlay.id);
+            const newOverlay: PlacedImageOverlay = {
+              id: 'img-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
+              pageNumber: currentPage,
+              fileName: file.name,
+              dataUrl,
+              mimeType: mime,
+              widthPct,
+              heightPct,
+              aspectRatio,
+              xPct: 35, // Centered default X
+              yPct: Math.round(nextY), // Stacked vertically with gap
+              opacity: 1.0
+            };
+
+            setSelectedImageId(newOverlay.id);
+            return [...prev, newOverlay];
+          });
         };
       };
 
       reader.readAsDataURL(file);
+    });
+  };
+
+  /**
+   * Auto-Stack all placed images vertically on current page with customizable gap
+   */
+  const autoStackImagesVertically = (gapPct: number = verticalGapPct) => {
+    setImageOverlays((prev) => {
+      let currentY = 8;
+      return prev.map((img) => {
+        if (img.pageNumber === currentPage || img.pageNumber === -1) {
+          const updated = {
+            ...img,
+            xPct: 35, // Centered
+            yPct: Math.round(currentY)
+          };
+          currentY += img.heightPct + gapPct;
+          return updated;
+        }
+        return img;
+      });
     });
   };
 
@@ -708,6 +746,47 @@ export const PdfEditor: React.FC = () => {
                 <p className="text-slate-500 text-xs text-center py-4">
                   Upload an image to place it on the PDF page. Select any image to adjust its dimensions or opacity.
                 </p>
+              )}
+
+              {/* Vertical Stacking & Spacing Gap Control */}
+              {imageOverlays.length > 1 && (
+                <div className="p-3.5 rounded-xl bg-brand-500/5 dark:bg-brand-500/10 border border-brand-500/20 space-y-3">
+                  <div className="flex justify-between items-center text-xs font-bold text-slate-800 dark:text-slate-200">
+                    <span className="flex items-center gap-1.5 text-brand-600 dark:text-brand-400">
+                      <Layers size={14} />
+                      <span>Vertical Image Spacing & Gap</span>
+                    </span>
+                    <span className="text-[10px] bg-brand-500/20 text-brand-600 dark:text-brand-300 px-2 py-0.5 rounded font-bold">
+                      {verticalGapPct}% Gap
+                    </span>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] text-slate-500 dark:text-slate-400 block mb-1">
+                      Adjust Spacing Gap Between Stacked Images:
+                    </label>
+                    <input
+                      type="range"
+                      min={1}
+                      max={15}
+                      value={verticalGapPct}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setVerticalGapPct(val);
+                        autoStackImagesVertically(val);
+                      }}
+                      className="w-full accent-brand-500 cursor-pointer"
+                    />
+                  </div>
+
+                  <button
+                    onClick={() => autoStackImagesVertically(verticalGapPct)}
+                    className="w-full py-2 bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs rounded-lg flex items-center justify-center gap-1.5 transition-all shadow"
+                  >
+                    <Layers size={13} />
+                    <span>Auto-Stack Vertically (With Gap)</span>
+                  </button>
+                </div>
               )}
 
               {/* List of Uploaded Images */}
