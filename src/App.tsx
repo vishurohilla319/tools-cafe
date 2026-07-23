@@ -32,13 +32,11 @@ import IdCardMaker from './pages/Tools/IdCardMaker';
 import PosterMaker from './pages/Tools/PosterMaker';
 import ComingSoonTool from './pages/Tools/ComingSoonTool';
 
-// New PDF Conversion Tools
 import WordToPdf from './pages/Tools/WordToPdf';
-
-// New Image Resizing/Cropping Tools
 import ImageResizer from './pages/Tools/ImageResizer';
 import ImageCropper from './pages/Tools/ImageCropper';
 import ImageConverter from './pages/Tools/ImageConverter';
+import { PdfToExcel } from './pages/Tools/PdfToExcel';
 
 export const App: React.FC = () => {
   return (
@@ -76,7 +74,7 @@ export const App: React.FC = () => {
                   
                   {/* New PDF Conversion Tools */}
                   <Route path="/tools/excel-to-pdf" element={<ComingSoonTool />} />
-                  <Route path="/tools/pdf-to-excel" element={<ComingSoonTool />} />
+                  <Route path="/tools/pdf-to-excel" element={<PdfToExcel />} />
                   <Route path="/tools/word-to-pdf" element={<WordToPdf />} />
                   <Route path="/tools/pdf-to-word" element={<ComingSoonTool />} />
                   <Route path="/tools/ppt-to-pdf" element={<ComingSoonTool />} />
