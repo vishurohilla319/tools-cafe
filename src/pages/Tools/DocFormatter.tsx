@@ -33,6 +33,7 @@ export const DocFormatter: React.FC = () => {
   const [layout, setLayout] = useState<'horizontal' | 'vertical'>('horizontal');
   const [cardWidthMm, setCardWidthMm] = useState<number>(85.6); // PVC standard width
   const [cardHeightMm, setCardHeightMm] = useState<number>(54);   // PVC standard height
+  const [verticalGapMm, setVerticalGapMm] = useState<number>(12); // Default gap in mm between stacked cards (12mm)
   const [copies, setCopies] = useState<number>(1); // 1, 2, or 3 copies
 
   const [isProcessing, setIsProcessing] = useState(false);
@@ -154,6 +155,7 @@ export const DocFormatter: React.FC = () => {
       // Convert mm to points (1 mm = 2.8346 pt)
       const cardW = cardWidthMm * 2.8346;
       const cardH = cardHeightMm * 2.8346;
+      const cardGap = verticalGapMm * 2.8346; // Customizable gap between front & back cards
 
       // Draw coordinates
       const rowGap = 25;
@@ -210,7 +212,6 @@ export const DocFormatter: React.FC = () => {
       } else {
         // Vertical stacked: Front on top, Back on bottom in each copy block
         const startX = (595.27 - cardW) / 2;
-        const cardGap = 8; // gap between front/back
 
         const blockH = cardH * 2 + cardGap;
         const totalHeight = copies * blockH + (copies - 1) * rowGap;
@@ -501,6 +502,50 @@ export const DocFormatter: React.FC = () => {
                   </button>
                 </div>
               </div>
+
+              {/* Vertical Card Gap Control (when Stacked Vertical is selected) */}
+              {layout === 'vertical' && (
+                <div className="p-3.5 rounded-xl bg-brand-500/5 dark:bg-brand-500/10 border border-brand-500/20 space-y-2.5">
+                  <div className="flex justify-between items-center text-xs font-bold text-slate-800 dark:text-slate-200">
+                    <span className="text-brand-600 dark:text-brand-400">Vertical Card Gap / Spacing</span>
+                    <span className="text-[10px] bg-brand-500/20 text-brand-600 dark:text-brand-300 px-2 py-0.5 rounded font-bold">
+                      {verticalGapMm} mm Gap
+                    </span>
+                  </div>
+
+                  <input
+                    type="range"
+                    min="3"
+                    max="30"
+                    value={verticalGapMm}
+                    onChange={(e) => {
+                      setVerticalGapMm(Number(e.target.value));
+                      setPdfBlobUrl(null);
+                    }}
+                    className="w-full accent-brand-500 cursor-pointer"
+                  />
+
+                  <div className="grid grid-cols-3 gap-1.5 pt-1">
+                    {[
+                      { label: 'Compact (5mm)', val: 5 },
+                      { label: 'Standard (12mm)', val: 12 },
+                      { label: 'Large (20mm)', val: 20 }
+                    ].map((g) => (
+                      <button
+                        key={g.val}
+                        onClick={() => { setVerticalGapMm(g.val); setPdfBlobUrl(null); }}
+                        className={`py-1 rounded text-[9px] font-bold border transition-all ${
+                          verticalGapMm === g.val
+                            ? 'bg-brand-600 text-white border-brand-600'
+                            : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-600 dark:text-slate-300'
+                        }`}
+                      >
+                        {g.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Dimensions selection */}
               <div className="space-y-1.5">
