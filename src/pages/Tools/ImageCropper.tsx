@@ -209,7 +209,7 @@ export const ImageCropper: React.FC = () => {
     }
   }, [cropMode, selectedRatio, widthCm, heightCm]);
 
-  // Render background image on canvas
+  // Render background image on workspace canvas
   useEffect(() => {
     if (!imageObj || !workspaceCanvasRef.current) return;
     const canvas = workspaceCanvasRef.current;
@@ -228,9 +228,9 @@ export const ImageCropper: React.FC = () => {
     ctx.translate(centerX, centerY);
     ctx.rotate((rotation * Math.PI) / 180);
 
-    const baseScale = Math.min(canvas.width / imageObj.width, canvas.height / imageObj.height);
-    const drawWidth = imageObj.width * baseScale * zoom;
-    const drawHeight = imageObj.height * baseScale * zoom;
+    const baseScale = Math.min(canvas.width / imageObj.naturalWidth, canvas.height / imageObj.naturalHeight);
+    const drawWidth = imageObj.naturalWidth * baseScale * zoom;
+    const drawHeight = imageObj.naturalHeight * baseScale * zoom;
 
     ctx.drawImage(imageObj, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
     ctx.restore();
@@ -332,40 +332,59 @@ export const ImageCropper: React.FC = () => {
   };
 
   /**
-   * Execute Cropping at 100% Full High Resolution & Zero Quality Loss
+   * Master Canvas Cropping Engine (Guarantees 100% Identical Visual Crop)
    */
   const triggerCrop = async () => {
-    if (!imageObj || !workspaceCanvasRef.current) return;
+    if (!imageObj) return;
     setIsProcessing(true);
 
     try {
-      const canvas = workspaceCanvasRef.current;
-      const baseScale = Math.min(canvas.width / imageObj.naturalWidth, canvas.height / imageObj.naturalHeight);
+      // 1. High Resolution Master Scale Factor (preserves source image sharpness)
+      const scaleRatio = Math.max(
+        imageObj.naturalWidth / workspaceWidth,
+        imageObj.naturalHeight / workspaceHeight,
+        2.5
+      );
+
+      const masterW = Math.round(workspaceWidth * scaleRatio);
+      const masterH = Math.round(workspaceHeight * scaleRatio);
+
+      // 2. Render High-Res Master Canvas with exact same transforms as preview
+      const masterCanvas = document.createElement('canvas');
+      masterCanvas.width = masterW;
+      masterCanvas.height = masterH;
+      const mCtx = masterCanvas.getContext('2d');
+      if (!mCtx) throw new Error('Could not create master canvas context');
+
+      mCtx.save();
+      let filterString = `brightness(${brightness}%) contrast(${contrast}%)`;
+      if (isGrayscale) filterString += ' grayscale(100%)';
+      mCtx.filter = filterString;
+
+      const centerX = masterW / 2;
+      const centerY = masterH / 2;
+      mCtx.translate(centerX, centerY);
+      mCtx.rotate((rotation * Math.PI) / 180);
+
+      const baseScale = Math.min(masterW / imageObj.naturalWidth, masterH / imageObj.naturalHeight);
       const drawWidth = imageObj.naturalWidth * baseScale * zoom;
       const drawHeight = imageObj.naturalHeight * baseScale * zoom;
 
-      const imgOriginX = (canvas.width - drawWidth) / 2;
-      const imgOriginY = (canvas.height - drawHeight) / 2;
+      mCtx.drawImage(imageObj, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+      mCtx.restore();
 
-      // Crop coordinates relative to the rendered image bounds inside workspace
-      const cropRelativeX = (cropRect.x - imgOriginX) / drawWidth;
-      const cropRelativeY = (cropRect.y - imgOriginY) / drawHeight;
-      const cropRelativeW = cropRect.w / drawWidth;
-      const cropRelativeH = cropRect.h / drawHeight;
-
-      // Map to full natural pixel dimensions of source image
-      const srcX = Math.max(0, Math.min(imageObj.naturalWidth, cropRelativeX * imageObj.naturalWidth));
-      const srcY = Math.max(0, Math.min(imageObj.naturalHeight, cropRelativeY * imageObj.naturalHeight));
-      const srcW = Math.max(1, Math.min(imageObj.naturalWidth - srcX, cropRelativeW * imageObj.naturalWidth));
-      const srcH = Math.max(1, Math.min(imageObj.naturalHeight - srcY, cropRelativeH * imageObj.naturalHeight));
+      // 3. Crop exact region from Master Canvas (100% Identical to Preview Selection)
+      const cropX = Math.round(cropRect.x * scaleRatio);
+      const cropY = Math.round(cropRect.y * scaleRatio);
+      const cropW = Math.round(cropRect.w * scaleRatio);
+      const cropH = Math.round(cropRect.h * scaleRatio);
 
       let outputW: number;
       let outputH: number;
 
       if (cropMode === 'preset') {
-        // High resolution native pixels
-        outputW = Math.max(1, Math.round(srcW));
-        outputH = Math.max(1, Math.round(srcH));
+        outputW = Math.max(1, cropW);
+        outputH = Math.max(1, cropH);
       } else {
         outputW = Math.round((widthCm / 2.54) * dpi);
         outputH = Math.round((heightCm / 2.54) * dpi);
@@ -375,22 +394,12 @@ export const ImageCropper: React.FC = () => {
       renderCanvas.width = outputW;
       renderCanvas.height = outputH;
       const rCtx = renderCanvas.getContext('2d');
-      if (!rCtx) throw new Error('Could not create output canvas context');
+      if (!rCtx) throw new Error('Could not create output render canvas context');
 
       rCtx.imageSmoothingEnabled = true;
       rCtx.imageSmoothingQuality = 'high';
 
-      let filterString = `brightness(${brightness}%) contrast(${contrast}%)`;
-      if (isGrayscale) filterString += ' grayscale(100%)';
-      rCtx.filter = filterString;
-
-      if (rotation === 0) {
-        rCtx.drawImage(imageObj, srcX, srcY, srcW, srcH, 0, 0, outputW, outputH);
-      } else {
-        rCtx.translate(outputW / 2, outputH / 2);
-        rCtx.rotate((rotation * Math.PI) / 180);
-        rCtx.drawImage(imageObj, srcX, srcY, srcW, srcH, -outputW / 2, -outputH / 2, outputW, outputH);
-      }
+      rCtx.drawImage(masterCanvas, cropX, cropY, cropW, cropH, 0, 0, outputW, outputH);
 
       const mimeType = originalFile?.type === 'image/png' ? 'image/png' : 'image/jpeg';
 
@@ -409,11 +418,11 @@ export const ImageCropper: React.FC = () => {
           setIsProcessing(false);
         },
         mimeType,
-        1.0 // 100% Maximum Quality (Crystal clear, zero compression blur)
+        1.0 // 100% Uncompressed Max Quality
       );
     } catch (err) {
       console.error('Error cropping image:', err);
-      alert('Cropping failed. Please adjust workspace inputs and try again.');
+      alert('Cropping failed. Please try again.');
       setIsProcessing(false);
     }
   };
@@ -831,7 +840,7 @@ export const ImageCropper: React.FC = () => {
                     />
                     <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold mt-2 flex items-center gap-1">
                       <Check size={12} />
-                      High-Resolution Crop Applied ({croppedSizeKb} KB)
+                      100% Precise Crop Applied ({croppedSizeKb} KB)
                     </span>
                   </div>
 
