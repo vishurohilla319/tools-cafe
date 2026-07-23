@@ -92,16 +92,16 @@ export const ImageCropper: React.FC = () => {
   const [imageObj, setImageObj] = useState<HTMLImageElement | null>(null);
   const [originalSizeKb, setOriginalSizeKb] = useState<number>(0);
 
-  // Workspace Dimensions
-  const workspaceWidth = 500;
-  const workspaceHeight = 380;
+  // Fixed internal workspace resolution (100% locked 4:3 ratio)
+  const workspaceWidth = 600;
+  const workspaceHeight = 450;
 
   // Interactive Crop Box Rect state (x, y, width, height) relative to workspace
   const [cropRect, setCropRect] = useState<{ x: number; y: number; w: number; h: number }>({
-    x: 75,
-    y: 50,
-    w: 350,
-    h: 280
+    x: 100,
+    y: 75,
+    w: 400,
+    h: 300
   });
 
   // Presets & Modes
@@ -128,8 +128,8 @@ export const ImageCropper: React.FC = () => {
   const [croppedUrl, setCroppedUrl] = useState<string | null>(null);
   const [croppedSizeKb, setCroppedSizeKb] = useState<number>(0);
 
-  // Interactive Dragging Refs & Container Ref
-  const containerRef = useRef<HTMLDivElement>(null);
+  // Interactive Dragging Refs & Workspace Wrapper Ref
+  const workspaceWrapperRef = useRef<HTMLDivElement>(null);
   const workspaceCanvasRef = useRef<HTMLCanvasElement>(null);
   const activeHandleRef = useRef<DragHandle>('none');
   const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -161,8 +161,8 @@ export const ImageCropper: React.FC = () => {
     img.src = url;
     img.onload = () => {
       setImageObj(img);
-      const defaultW = Math.min(workspaceWidth - 60, img.width);
-      const defaultH = Math.min(workspaceHeight - 60, img.height);
+      const defaultW = Math.min(workspaceWidth - 80, 400);
+      const defaultH = Math.min(workspaceHeight - 80, 300);
       setCropRect({
         x: Math.round((workspaceWidth - defaultW) / 2),
         y: Math.round((workspaceHeight - defaultH) / 2),
@@ -195,7 +195,7 @@ export const ImageCropper: React.FC = () => {
       const w = Math.max(0.1, widthCm);
       const h = Math.max(0.1, heightCm);
       const r = w / h;
-      let newW = 280;
+      let newW = 350;
       let newH = Math.round(newW / r);
       if (newH > workspaceHeight - 40) {
         newH = workspaceHeight - 40;
@@ -237,7 +237,7 @@ export const ImageCropper: React.FC = () => {
   }, [imageObj, zoom, rotation, brightness, contrast, isGrayscale]);
 
   /**
-   * Universal Handle Pointer Drag Handler
+   * Universal Handle Pointer Drag Handler (Locked 1:1 with Workspace Wrapper)
    */
   const startDrag = (e: React.PointerEvent | React.MouseEvent, handle: DragHandle) => {
     e.stopPropagation();
@@ -249,17 +249,17 @@ export const ImageCropper: React.FC = () => {
 
     const handlePointerMove = (moveEvt: PointerEvent | MouseEvent) => {
       if (activeHandleRef.current === 'none') return;
-      const container = containerRef.current;
-      if (!container) return;
+      const wrapper = workspaceWrapperRef.current;
+      if (!wrapper) return;
 
-      const containerRect = container.getBoundingClientRect();
-      const scaleX = workspaceWidth / containerRect.width;
-      const scaleY = workspaceHeight / containerRect.height;
+      const wrapperRect = wrapper.getBoundingClientRect();
+      const scaleX = workspaceWidth / wrapperRect.width;
+      const scaleY = workspaceHeight / wrapperRect.height;
 
       const dx = (moveEvt.clientX - dragStartRef.current.x) * scaleX;
       const dy = (moveEvt.clientY - dragStartRef.current.y) * scaleY;
       const init = initialRectRef.current;
-      const minSize = 30;
+      const minSize = 40;
 
       let newX = init.x;
       let newY = init.y;
@@ -332,7 +332,7 @@ export const ImageCropper: React.FC = () => {
   };
 
   /**
-   * Execute Cropping based on exact cropRect
+   * Execute Cropping at 100% Full High Resolution & Zero Quality Loss
    */
   const triggerCrop = async () => {
     if (!imageObj || !workspaceCanvasRef.current) return;
@@ -340,27 +340,30 @@ export const ImageCropper: React.FC = () => {
 
     try {
       const canvas = workspaceCanvasRef.current;
-      const baseScale = Math.min(canvas.width / imageObj.width, canvas.height / imageObj.height);
-      const drawWidth = imageObj.width * baseScale * zoom;
-      const drawHeight = imageObj.height * baseScale * zoom;
+      const baseScale = Math.min(canvas.width / imageObj.naturalWidth, canvas.height / imageObj.naturalHeight);
+      const drawWidth = imageObj.naturalWidth * baseScale * zoom;
+      const drawHeight = imageObj.naturalHeight * baseScale * zoom;
 
       const imgOriginX = (canvas.width - drawWidth) / 2;
       const imgOriginY = (canvas.height - drawHeight) / 2;
 
+      // Crop coordinates relative to the rendered image bounds inside workspace
       const cropRelativeX = (cropRect.x - imgOriginX) / drawWidth;
       const cropRelativeY = (cropRect.y - imgOriginY) / drawHeight;
       const cropRelativeW = cropRect.w / drawWidth;
       const cropRelativeH = cropRect.h / drawHeight;
 
-      const srcX = cropRelativeX * imageObj.width;
-      const srcY = cropRelativeY * imageObj.height;
-      const srcW = cropRelativeW * imageObj.width;
-      const srcH = cropRelativeH * imageObj.height;
+      // Map to full natural pixel dimensions of source image
+      const srcX = Math.max(0, Math.min(imageObj.naturalWidth, cropRelativeX * imageObj.naturalWidth));
+      const srcY = Math.max(0, Math.min(imageObj.naturalHeight, cropRelativeY * imageObj.naturalHeight));
+      const srcW = Math.max(1, Math.min(imageObj.naturalWidth - srcX, cropRelativeW * imageObj.naturalWidth));
+      const srcH = Math.max(1, Math.min(imageObj.naturalHeight - srcY, cropRelativeH * imageObj.naturalHeight));
 
       let outputW: number;
       let outputH: number;
 
       if (cropMode === 'preset') {
+        // High resolution native pixels
         outputW = Math.max(1, Math.round(srcW));
         outputH = Math.max(1, Math.round(srcH));
       } else {
@@ -389,11 +392,13 @@ export const ImageCropper: React.FC = () => {
         rCtx.drawImage(imageObj, srcX, srcY, srcW, srcH, -outputW / 2, -outputH / 2, outputW, outputH);
       }
 
+      const mimeType = originalFile?.type === 'image/png' ? 'image/png' : 'image/jpeg';
+
       renderCanvas.toBlob(
         async (blob) => {
           if (blob) {
             let finalBlob = blob;
-            if (cropMode === 'custom-cm') {
+            if (cropMode === 'custom-cm' && mimeType === 'image/jpeg') {
               finalBlob = await changeDpiInJpeg(blob, dpi);
             }
             if (croppedUrl) URL.revokeObjectURL(croppedUrl);
@@ -403,8 +408,8 @@ export const ImageCropper: React.FC = () => {
           }
           setIsProcessing(false);
         },
-        'image/jpeg',
-        0.95
+        mimeType,
+        1.0 // 100% Maximum Quality (Crystal clear, zero compression blur)
       );
     } catch (err) {
       console.error('Error cropping image:', err);
@@ -417,8 +422,9 @@ export const ImageCropper: React.FC = () => {
     if (!croppedBlob || !originalFile) return;
     const link = document.createElement('a');
     const baseName = originalFile.name.replace(/\.[^/.]+$/, "");
+    const ext = originalFile.type === 'image/png' ? 'png' : 'jpg';
     link.href = URL.createObjectURL(croppedBlob);
-    link.download = `${baseName}_cropped.jpg`;
+    link.download = `${baseName}_cropped.${ext}`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -451,7 +457,7 @@ export const ImageCropper: React.FC = () => {
             onFilesSelected={handleFilesSelected}
             accept="image/*"
             maxSizeMB={25}
-            label="Upload an image to crop with 4-corner handles"
+            label="Upload an image to crop with 100% accurate preview"
           />
         </div>
       ) : (
@@ -471,109 +477,113 @@ export const ImageCropper: React.FC = () => {
               </button>
             </div>
 
-            {/* Visual Canvas with Interactive 4 Corner Handles Overlay */}
-            <div 
-              ref={containerRef}
-              className="flex-1 flex items-center justify-center p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-900 min-h-[420px] relative overflow-hidden select-none touch-none"
-            >
+            {/* Outer Container with dark background */}
+            <div className="flex-1 flex items-center justify-center p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-950 min-h-[460px] relative overflow-hidden select-none touch-none">
               {isProcessing && (
                 <div className="absolute inset-0 bg-slate-950/80 z-40 flex flex-col items-center justify-center text-white p-4 text-center">
                   <div className="w-8 h-8 border-4 border-brand-500 border-t-transparent rounded-full animate-spin mb-3" />
-                  <p className="text-xs font-bold">Cropping image...</p>
+                  <p className="text-xs font-bold">Processing high-resolution crop...</p>
                 </div>
               )}
 
-              {/* Background Rendered Image Canvas */}
-              <canvas
-                ref={workspaceCanvasRef}
-                width={workspaceWidth}
-                height={workspaceHeight}
-                className="w-full h-full object-contain pointer-events-none"
-              />
-
-              {/* Interactive Crop Box Overlay with Corner Drag Handles */}
-              <div
-                style={{
-                  left: `${(cropRect.x / workspaceWidth) * 100}%`,
-                  top: `${(cropRect.y / workspaceHeight) * 100}%`,
-                  width: `${(cropRect.w / workspaceWidth) * 100}%`,
-                  height: `${(cropRect.h / workspaceHeight) * 100}%`
-                }}
-                onPointerDown={(e) => startDrag(e, 'move')}
-                className="absolute border-2 border-brand-400 shadow-[0_0_0_9999px_rgba(15,23,42,0.65)] z-20 pointer-events-auto cursor-move"
+              {/* 100% Locked 4:3 Aspect Ratio Workspace Wrapper */}
+              <div 
+                ref={workspaceWrapperRef}
+                style={{ aspectRatio: `${workspaceWidth} / ${workspaceHeight}` }}
+                className="relative w-full max-w-[600px] max-h-[450px] bg-slate-900 border border-slate-800 rounded-lg shadow-2xl flex items-center justify-center overflow-hidden"
               >
-                {/* 3x3 Grid Lines */}
-                <div className="absolute inset-0 grid grid-cols-3 divide-x divide-white/25 pointer-events-none">
-                  <div />
-                  <div />
-                  <div />
-                </div>
-                <div className="absolute inset-0 grid grid-rows-3 divide-y divide-white/25 pointer-events-none">
-                  <div />
-                  <div />
-                  <div />
-                </div>
-
-                {/* 4 Corner Drag Handles with direct pointerdown event triggers */}
-                <div 
-                  onPointerDown={(e) => startDrag(e, 'tl')}
-                  title="Drag Top-Left Corner"
-                  className="absolute -left-3 -top-3 w-6 h-6 bg-white border-2 border-brand-500 rounded-full shadow-xl cursor-nwse-resize hover:scale-125 transition-transform flex items-center justify-center z-30"
-                >
-                  <div className="w-2 h-2 bg-brand-500 rounded-full" />
-                </div>
-
-                <div 
-                  onPointerDown={(e) => startDrag(e, 'tr')}
-                  title="Drag Top-Right Corner"
-                  className="absolute -right-3 -top-3 w-6 h-6 bg-white border-2 border-brand-500 rounded-full shadow-xl cursor-nesw-resize hover:scale-125 transition-transform flex items-center justify-center z-30"
-                >
-                  <div className="w-2 h-2 bg-brand-500 rounded-full" />
-                </div>
-
-                <div 
-                  onPointerDown={(e) => startDrag(e, 'bl')}
-                  title="Drag Bottom-Left Corner"
-                  className="absolute -left-3 -bottom-3 w-6 h-6 bg-white border-2 border-brand-500 rounded-full shadow-xl cursor-nesw-resize hover:scale-125 transition-transform flex items-center justify-center z-30"
-                >
-                  <div className="w-2 h-2 bg-brand-500 rounded-full" />
-                </div>
-
-                <div 
-                  onPointerDown={(e) => startDrag(e, 'br')}
-                  title="Drag Bottom-Right Corner"
-                  className="absolute -right-3 -bottom-3 w-6 h-6 bg-white border-2 border-brand-500 rounded-full shadow-xl cursor-nwse-resize hover:scale-125 transition-transform flex items-center justify-center z-30"
-                >
-                  <div className="w-2 h-2 bg-brand-500 rounded-full" />
-                </div>
-
-                {/* 4 Edge Midpoint Drag Handles */}
-                <div 
-                  onPointerDown={(e) => startDrag(e, 'top')}
-                  className="absolute left-1/2 -top-2.5 -translate-x-1/2 w-8 h-4 bg-white border-2 border-brand-500 rounded-full shadow-md cursor-ns-resize z-30" 
-                />
-                <div 
-                  onPointerDown={(e) => startDrag(e, 'bottom')}
-                  className="absolute left-1/2 -bottom-2.5 -translate-x-1/2 w-8 h-4 bg-white border-2 border-brand-500 rounded-full shadow-md cursor-ns-resize z-30" 
-                />
-                <div 
-                  onPointerDown={(e) => startDrag(e, 'left')}
-                  className="absolute top-1/2 -left-2.5 -translate-y-1/2 w-4 h-8 bg-white border-2 border-brand-500 rounded-full shadow-md cursor-ew-resize z-30" 
-                />
-                <div 
-                  onPointerDown={(e) => startDrag(e, 'right')}
-                  className="absolute top-1/2 -right-2.5 -translate-y-1/2 w-4 h-8 bg-white border-2 border-brand-500 rounded-full shadow-md cursor-ew-resize z-30" 
+                {/* Background Rendered Image Canvas */}
+                <canvas
+                  ref={workspaceCanvasRef}
+                  width={workspaceWidth}
+                  height={workspaceHeight}
+                  className="w-full h-full object-contain pointer-events-none"
                 />
 
-                {/* Crop Box Size Indicator Badge */}
-                <div className="absolute -top-8 left-1/2 -translate-x-1/2 text-[10px] font-bold text-white bg-brand-600 px-2 py-0.5 rounded shadow pointer-events-none whitespace-nowrap">
-                  {cropRect.w} × {cropRect.h} px
+                {/* Interactive Crop Box Overlay aligned 1:1 with Workspace Wrapper */}
+                <div
+                  style={{
+                    left: `${(cropRect.x / workspaceWidth) * 100}%`,
+                    top: `${(cropRect.y / workspaceHeight) * 100}%`,
+                    width: `${(cropRect.w / workspaceWidth) * 100}%`,
+                    height: `${(cropRect.h / workspaceHeight) * 100}%`
+                  }}
+                  onPointerDown={(e) => startDrag(e, 'move')}
+                  className="absolute border-2 border-brand-400 shadow-[0_0_0_9999px_rgba(15,23,42,0.7)] z-20 pointer-events-auto cursor-move"
+                >
+                  {/* 3x3 Grid Lines */}
+                  <div className="absolute inset-0 grid grid-cols-3 divide-x divide-white/30 pointer-events-none">
+                    <div />
+                    <div />
+                    <div />
+                  </div>
+                  <div className="absolute inset-0 grid grid-rows-3 divide-y divide-white/30 pointer-events-none">
+                    <div />
+                    <div />
+                    <div />
+                  </div>
+
+                  {/* 4 Corner Drag Handles */}
+                  <div 
+                    onPointerDown={(e) => startDrag(e, 'tl')}
+                    title="Drag Top-Left Corner"
+                    className="absolute -left-3 -top-3 w-6 h-6 bg-white border-2 border-brand-500 rounded-full shadow-xl cursor-nwse-resize hover:scale-125 transition-transform flex items-center justify-center z-30"
+                  >
+                    <div className="w-2 h-2 bg-brand-500 rounded-full" />
+                  </div>
+
+                  <div 
+                    onPointerDown={(e) => startDrag(e, 'tr')}
+                    title="Drag Top-Right Corner"
+                    className="absolute -right-3 -top-3 w-6 h-6 bg-white border-2 border-brand-500 rounded-full shadow-xl cursor-nesw-resize hover:scale-125 transition-transform flex items-center justify-center z-30"
+                  >
+                    <div className="w-2 h-2 bg-brand-500 rounded-full" />
+                  </div>
+
+                  <div 
+                    onPointerDown={(e) => startDrag(e, 'bl')}
+                    title="Drag Bottom-Left Corner"
+                    className="absolute -left-3 -bottom-3 w-6 h-6 bg-white border-2 border-brand-500 rounded-full shadow-xl cursor-nesw-resize hover:scale-125 transition-transform flex items-center justify-center z-30"
+                  >
+                    <div className="w-2 h-2 bg-brand-500 rounded-full" />
+                  </div>
+
+                  <div 
+                    onPointerDown={(e) => startDrag(e, 'br')}
+                    title="Drag Bottom-Right Corner"
+                    className="absolute -right-3 -bottom-3 w-6 h-6 bg-white border-2 border-brand-500 rounded-full shadow-xl cursor-nwse-resize hover:scale-125 transition-transform flex items-center justify-center z-30"
+                  >
+                    <div className="w-2 h-2 bg-brand-500 rounded-full" />
+                  </div>
+
+                  {/* 4 Edge Midpoint Drag Handles */}
+                  <div 
+                    onPointerDown={(e) => startDrag(e, 'top')}
+                    className="absolute left-1/2 -top-2.5 -translate-x-1/2 w-8 h-4 bg-white border-2 border-brand-500 rounded-full shadow-md cursor-ns-resize z-30" 
+                  />
+                  <div 
+                    onPointerDown={(e) => startDrag(e, 'bottom')}
+                    className="absolute left-1/2 -bottom-2.5 -translate-x-1/2 w-8 h-4 bg-white border-2 border-brand-500 rounded-full shadow-md cursor-ns-resize z-30" 
+                  />
+                  <div 
+                    onPointerDown={(e) => startDrag(e, 'left')}
+                    className="absolute top-1/2 -left-2.5 -translate-y-1/2 w-4 h-8 bg-white border-2 border-brand-500 rounded-full shadow-md cursor-ew-resize z-30" 
+                  />
+                  <div 
+                    onPointerDown={(e) => startDrag(e, 'right')}
+                    className="absolute top-1/2 -right-2.5 -translate-y-1/2 w-4 h-8 bg-white border-2 border-brand-500 rounded-full shadow-md cursor-ew-resize z-30" 
+                  />
+
+                  {/* Crop Box Size Indicator Badge */}
+                  <div className="absolute -top-8 left-1/2 -translate-x-1/2 text-[10px] font-bold text-white bg-brand-600 px-2 py-0.5 rounded shadow pointer-events-none whitespace-nowrap">
+                    {cropRect.w} × {cropRect.h} px
+                  </div>
                 </div>
               </div>
 
               <div className="absolute bottom-3 right-3 text-[10px] font-bold text-slate-300 bg-slate-950/80 px-2.5 py-1 rounded-md pointer-events-none z-30 flex items-center gap-1.5">
                 <Move size={12} className="text-brand-400" />
-                <span>Drag white corner handles to crop</span>
+                <span>Drag corners to resize selection</span>
               </div>
             </div>
 
@@ -817,11 +827,11 @@ export const ImageCropper: React.FC = () => {
                     <img
                       src={croppedUrl}
                       alt="Cropped Output"
-                      className="max-h-[160px] object-contain rounded border border-slate-200 dark:border-slate-800 shadow-sm"
+                      className="max-h-[180px] object-contain rounded border border-slate-200 dark:border-slate-800 shadow-sm"
                     />
                     <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold mt-2 flex items-center gap-1">
                       <Check size={12} />
-                      Crop applied! Output size: {croppedSizeKb} KB
+                      High-Resolution Crop Applied ({croppedSizeKb} KB)
                     </span>
                   </div>
 
@@ -831,7 +841,7 @@ export const ImageCropper: React.FC = () => {
                     className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-98 flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <Download size={14} />
-                    Download Cropped Image
+                    Download HD Cropped Image
                   </button>
                 </div>
               )}
