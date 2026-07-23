@@ -144,14 +144,20 @@ export const PdfEditor: React.FC = () => {
           const heightPct = Math.round(widthPct / aspectRatio);
 
           setImageOverlays((prev) => {
+            const pageAspect = (canvasRef.current && canvasRef.current.width > 0)
+              ? canvasRef.current.height / canvasRef.current.width
+              : 1.414;
+
             // Find existing images on active page to place next image with vertical gap
             const pageImgs = prev.filter(i => i.pageNumber === currentPage || i.pageNumber === -1);
-            let nextY = 10;
+            let nextY = 5;
             if (pageImgs.length > 0) {
               const last = pageImgs[pageImgs.length - 1];
-              nextY = last.yPct + last.heightPct + verticalGapPct;
-              if (nextY + heightPct > 92) {
-                nextY = 10;
+              const lastHInPageHeightPct = (last.widthPct / last.aspectRatio) / pageAspect;
+              nextY = last.yPct + lastHInPageHeightPct + verticalGapPct;
+              const thisHInPageHeightPct = (widthPct / aspectRatio) / pageAspect;
+              if (nextY + thisHInPageHeightPct > 95) {
+                nextY = 5;
               }
             }
 
@@ -164,7 +170,7 @@ export const PdfEditor: React.FC = () => {
               widthPct,
               heightPct,
               aspectRatio,
-              xPct: 35, // Centered default X
+              xPct: Math.round((100 - widthPct) / 2), // Centered horizontally
               yPct: Math.round(nextY), // Stacked vertically with gap
               opacity: 1.0
             };
@@ -183,16 +189,21 @@ export const PdfEditor: React.FC = () => {
    * Auto-Stack all placed images vertically on current page with customizable gap
    */
   const autoStackImagesVertically = (gapPct: number = verticalGapPct) => {
+    const pageAspect = (canvasRef.current && canvasRef.current.width > 0)
+      ? canvasRef.current.height / canvasRef.current.width
+      : 1.414;
+
     setImageOverlays((prev) => {
-      let currentY = 8;
+      let currentY = 5;
       return prev.map((img) => {
         if (img.pageNumber === currentPage || img.pageNumber === -1) {
+          const heightInPageHeightPct = (img.widthPct / img.aspectRatio) / pageAspect;
           const updated = {
             ...img,
-            xPct: 35, // Centered
+            xPct: Math.round((100 - img.widthPct) / 2),
             yPct: Math.round(currentY)
           };
-          currentY += img.heightPct + gapPct;
+          currentY += heightInPageHeightPct + gapPct;
           return updated;
         }
         return img;
