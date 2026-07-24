@@ -7,6 +7,7 @@ import { FileDown, Download, RefreshCw, FileText, CheckCircle2, Zap, Target } fr
 import FileUpload from '../../components/shared/FileUpload';
 import ToolHeader from '../../components/shared/ToolHeader';
 import ProgressBar from '../../components/shared/ProgressBar';
+import SEOSection from '../../components/shared/SEOSection';
 import { useLanguage } from '../../context/LanguageContext';
 
 // Set up PDF.js worker
@@ -524,6 +525,9 @@ export const CompressPdf: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* SEO Content & FAQ Section */}
+      <SEOSection toolId="compress-pdf" />
     </div>
   );
 };

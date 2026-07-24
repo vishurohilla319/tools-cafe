@@ -3,6 +3,7 @@ import QRCode from 'qrcode';
 import { Download, QrCode, Wifi, Contact, MessageSquare, Link2 } from 'lucide-react';
 import ToolHeader from '../../components/shared/ToolHeader';
 import ProgressBar from '../../components/shared/ProgressBar';
+import SEOSection from '../../components/shared/SEOSection';
 
 export const QrGenerator: React.FC = () => {
 
@@ -459,6 +460,9 @@ export const QrGenerator: React.FC = () => {
         </div>
 
       </div>
+
+      {/* SEO Content & FAQ Section */}
+      <SEOSection toolId="qr-generator" />
     </div>
   );
 };

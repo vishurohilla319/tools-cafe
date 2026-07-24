@@ -1,0 +1,10 @@
+# https://www.robotstxt.org/robotstxt.html
+User-agent: *
+Allow: /
+
+# Exclude internal administration routes
+Disallow: /admin
+Disallow: /dashboard
+
+# Specify XML Sitemap
+Sitemap: https://toolscafe.com/sitemap.xml

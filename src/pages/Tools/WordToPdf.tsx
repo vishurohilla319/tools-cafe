@@ -7,6 +7,7 @@ import { Settings, FileText, ArrowRight, Download, CheckCircle, FileUp, Sparkles
 import FileUpload from '../../components/shared/FileUpload';
 import ToolHeader from '../../components/shared/ToolHeader';
 import ProgressBar from '../../components/shared/ProgressBar';
+import SEOSection from '../../components/shared/SEOSection';
 import { useLanguage } from '../../context/LanguageContext';
 
 export const WordToPdf: React.FC = () => {
@@ -499,6 +500,9 @@ export const WordToPdf: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* SEO Content & FAQ Section */}
+      <SEOSection toolId="word-to-pdf" />
     </div>
   );
 };

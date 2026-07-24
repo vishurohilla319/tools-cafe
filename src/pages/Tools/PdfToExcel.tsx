@@ -104,12 +104,22 @@ export const PdfToExcel: React.FC = () => {
     setPasswordError('');
     setIsUnlocked(false);
     
+    setIsProcessing(true);
+    setProgress(10);
+    setLoadingText('Parsing PDF tables & auto-building Excel structure...');
+
     try {
       const buffer = await file.arrayBuffer();
       setArrayBuffer(buffer);
-      await loadPdfDocument(buffer, '');
+      const pdf = await loadPdfDocument(buffer, '');
+      if (pdf) {
+        // Automatically extract tables and build Excel structure instantly on upload!
+        await runTableExtraction(pdf);
+      }
     } catch (err) {
       console.error("Failed to load PDF preview:", err);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -307,6 +317,30 @@ export const PdfToExcel: React.FC = () => {
           xMidPct
         };
       });
+
+      // Auto detect initial column ruler lines from page 1 text item X clusters
+      if (pageNum === 1 && rawItems.length > 5) {
+        const xStarts = rawItems.map(it => Math.round(it.xPct)).sort((a, b) => a - b);
+        const detectedRulers: number[] = [];
+        
+        xStarts.forEach(x => {
+          if (x > 5 && x < 95) {
+            if (detectedRulers.length === 0) {
+              detectedRulers.push(x);
+            } else {
+              const last = detectedRulers[detectedRulers.length - 1];
+              if (x - last >= 8) {
+                detectedRulers.push(x);
+              }
+            }
+          }
+        });
+
+        if (detectedRulers.length >= 2) {
+          const adjustedRulers = detectedRulers.map(r => Math.max(2, r - 2));
+          setColumnRulers(adjustedRulers);
+        }
+      }
 
       if (rawItems.length === 0) {
         extractedPages.push({

@@ -4,6 +4,7 @@ import { Plus, Trash2, ArrowUp, ArrowDown, RotateCw, FileText, Download } from '
 import FileUpload from '../../components/shared/FileUpload';
 import ToolHeader from '../../components/shared/ToolHeader';
 import ProgressBar from '../../components/shared/ProgressBar';
+import SEOSection from '../../components/shared/SEOSection';
 import { useLanguage } from '../../context/LanguageContext';
 
 interface ImageFile {
@@ -487,6 +488,9 @@ export const JpgToPdf: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* SEO Content & FAQ Section */}
+      <SEOSection toolId="jpg-to-pdf" />
     </div>
   );
 };

@@ -7,6 +7,7 @@ import { Trash2, Download, CheckCircle } from 'lucide-react';
 import FileUpload from '../../components/shared/FileUpload';
 import ToolHeader from '../../components/shared/ToolHeader';
 import ProgressBar from '../../components/shared/ProgressBar';
+import SEOSection from '../../components/shared/SEOSection';
 import { useLanguage } from '../../context/LanguageContext';
 
 // Set up worker
@@ -313,6 +314,9 @@ export const DeletePdfPages: React.FC = () => {
 
         </div>
       )}
+
+      {/* SEO Content & FAQ Section */}
+      <SEOSection toolId="delete-pdf-pages" />
     </div>
   );
 };

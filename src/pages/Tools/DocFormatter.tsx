@@ -4,6 +4,7 @@ import { Download, Layout, Check, AlertTriangle } from 'lucide-react';
 import FileUpload from '../../components/shared/FileUpload';
 import ToolHeader from '../../components/shared/ToolHeader';
 import ProgressBar from '../../components/shared/ProgressBar';
+import SEOSection from '../../components/shared/SEOSection';
 import { useLanguage } from '../../context/LanguageContext';
 
 interface CardState {
@@ -643,6 +644,9 @@ export const DocFormatter: React.FC = () => {
         </div>
 
       </div>
+
+      {/* SEO Content & FAQ Section */}
+      <SEOSection toolId="doc-formatter" />
     </div>
   );
 };

@@ -3,6 +3,7 @@ import { Download, Sliders, Check, AlertCircle, ArrowRight, FolderArchive, Trash
 import JSZip from 'jszip';
 import FileUpload from '../../components/shared/FileUpload';
 import ToolHeader from '../../components/shared/ToolHeader';
+import SEOSection from '../../components/shared/SEOSection';
 import { useLanguage } from '../../context/LanguageContext';
 
 interface ImageConverterProps {
@@ -439,6 +440,9 @@ export const ImageConverter: React.FC<ImageConverterProps> = ({ defaultFrom, def
           </div>
         </div>
       )}
+
+      {/* SEO Content & FAQ Section */}
+      <SEOSection toolId="image-converter" />
     </div>
   );
 };

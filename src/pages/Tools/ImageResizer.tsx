@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Download, Maximize, RefreshCw, FileImage, Sliders, Lock, Unlock, ArrowRight, Check } from 'lucide-react';
 import FileUpload from '../../components/shared/FileUpload';
 import ToolHeader from '../../components/shared/ToolHeader';
+import SEOSection from '../../components/shared/SEOSection';
 import { useLanguage } from '../../context/LanguageContext';
 
 export const ImageResizer: React.FC = () => {
@@ -464,6 +465,9 @@ export const ImageResizer: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* SEO Content & FAQ Section */}
+      <SEOSection toolId="image-resize" />
     </div>
   );
 };

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Download, Crop, RotateCw, ZoomIn, ZoomOut, RefreshCw, Sliders, FileImage, Move, Sparkles } from 'lucide-react';
 import FileUpload from '../../components/shared/FileUpload';
 import ToolHeader from '../../components/shared/ToolHeader';
+import SEOSection from '../../components/shared/SEOSection';
 import { useLanguage } from '../../context/LanguageContext';
 
 type AspectRatioPreset = {
@@ -863,6 +864,9 @@ export const ImageCropper: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* SEO Content & FAQ Section */}
+      <SEOSection toolId="image-crop" />
     </div>
   );
 };

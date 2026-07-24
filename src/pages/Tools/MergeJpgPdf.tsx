@@ -4,6 +4,7 @@ import { Plus, Trash2, ArrowUp, ArrowDown, RotateCw, FileText, Download, Layers,
 import FileUpload from '../../components/shared/FileUpload';
 import ToolHeader from '../../components/shared/ToolHeader';
 import ProgressBar from '../../components/shared/ProgressBar';
+import SEOSection from '../../components/shared/SEOSection';
 import { useLanguage } from '../../context/LanguageContext';
 
 interface QueueFile {
@@ -571,6 +572,9 @@ export const MergeJpgPdf: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* SEO Content & FAQ Section */}
+      <SEOSection toolId="merge-jpg-pdf" />
     </div>
   );
 };

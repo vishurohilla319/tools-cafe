@@ -3,6 +3,7 @@ import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { Download, HeartHandshake } from 'lucide-react';
 import ToolHeader from '../../components/shared/ToolHeader';
 import ProgressBar from '../../components/shared/ProgressBar';
+import SEOSection from '../../components/shared/SEOSection';
 import { useLanguage } from '../../context/LanguageContext';
 
 export const MarriageBiodata: React.FC = () => {
@@ -703,6 +704,9 @@ export const MarriageBiodata: React.FC = () => {
         </div>
 
       </div>
+
+      {/* SEO Content & FAQ Section */}
+      <SEOSection toolId="marriage-biodata" />
     </div>
   );
 };

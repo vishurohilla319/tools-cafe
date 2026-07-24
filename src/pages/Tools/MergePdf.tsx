@@ -4,6 +4,7 @@ import { Trash2, ArrowUp, ArrowDown, FileText, Download, Merge } from 'lucide-re
 import FileUpload from '../../components/shared/FileUpload';
 import ToolHeader from '../../components/shared/ToolHeader';
 import ProgressBar from '../../components/shared/ProgressBar';
+import SEOSection from '../../components/shared/SEOSection';
 import { useLanguage } from '../../context/LanguageContext';
 
 interface PdfFile {
@@ -260,6 +261,9 @@ export const MergePdf: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* SEO Content & FAQ Section */}
+      <SEOSection toolId="merge-pdf" />
     </div>
   );
 };

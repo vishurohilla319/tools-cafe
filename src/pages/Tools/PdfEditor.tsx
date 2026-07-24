@@ -18,6 +18,7 @@ import {
 import FileUpload from '../../components/shared/FileUpload';
 import ToolHeader from '../../components/shared/ToolHeader';
 import ProgressBar from '../../components/shared/ProgressBar';
+import SEOSection from '../../components/shared/SEOSection';
 
 // Set up PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
@@ -856,6 +857,9 @@ export const PdfEditor: React.FC = () => {
 
         </div>
       )}
+
+      {/* SEO Content & FAQ Section */}
+      <SEOSection toolId="pdf-editor" />
     </div>
   );
 };

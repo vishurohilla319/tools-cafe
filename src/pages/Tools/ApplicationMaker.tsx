@@ -3,6 +3,7 @@ import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { Download, FileText, Layers } from 'lucide-react';
 import ToolHeader from '../../components/shared/ToolHeader';
 import ProgressBar from '../../components/shared/ProgressBar';
+import SEOSection from '../../components/shared/SEOSection';
 import { useLanguage } from '../../context/LanguageContext';
 
 interface LetterTemplate {
@@ -487,6 +488,9 @@ export const ApplicationMaker: React.FC = () => {
         </div>
 
       </div>
+
+      {/* SEO Content & FAQ Section */}
+      <SEOSection toolId="application-maker" />
     </div>
   );
 };
