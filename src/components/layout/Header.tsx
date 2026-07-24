@@ -76,55 +76,55 @@ export const Header: React.FC = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
-          <div className="flex items-center">
-            <Link to="/" className="flex items-center gap-2 group">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-indigo-400 flex items-center justify-center shadow-lg shadow-brand-500/20 group-hover:scale-105 transition-transform duration-300">
+          <div className="flex items-center shrink-0">
+            <Link to="/" className="flex items-center gap-2 group whitespace-nowrap shrink-0">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-indigo-400 flex items-center justify-center shadow-lg shadow-brand-500/20 group-hover:scale-105 transition-transform duration-300 shrink-0">
                 <Icon name="Printer" size={20} className="text-white" />
               </div>
-              <span className="font-heading text-xl font-bold tracking-tight bg-gradient-to-r from-brand-600 via-indigo-500 to-violet-500 bg-clip-text text-transparent">
+              <span className="font-heading text-xl font-bold tracking-tight bg-gradient-to-r from-brand-600 via-indigo-500 to-violet-500 bg-clip-text text-transparent whitespace-nowrap">
                 Tools Cafe
               </span>
             </Link>
           </div>
 
           {/* Desktop Nav */}
-          <nav className="hidden md:flex space-x-6 items-center">
-            <Link to="/" className="text-sm font-medium hover:text-brand-600 text-slate-600 dark:text-slate-300 transition-colors">
+          <nav className="hidden md:flex space-x-3 lg:space-x-6 items-center shrink-0">
+            <Link to="/" className="text-sm font-medium hover:text-brand-600 text-slate-600 dark:text-slate-300 transition-colors whitespace-nowrap">
               {t('nav.home')}
             </Link>
-            <Link to="/tools" className="text-sm font-medium hover:text-brand-600 text-slate-600 dark:text-slate-300 transition-colors">
+            <Link to="/tools" className="text-sm font-medium hover:text-brand-600 text-slate-600 dark:text-slate-300 transition-colors whitespace-nowrap">
               {t('nav.allTools')}
             </Link>
-            <Link to="/tools?category=pdf" className="text-sm font-medium hover:text-brand-600 text-slate-600 dark:text-slate-300 transition-colors">
+            <Link to="/tools?category=pdf" className="text-sm font-medium hover:text-brand-600 text-slate-600 dark:text-slate-300 transition-colors whitespace-nowrap">
               {t('nav.pdfTools')}
             </Link>
-            <Link to="/tools?category=image" className="text-sm font-medium hover:text-brand-600 text-slate-600 dark:text-slate-300 transition-colors">
+            <Link to="/tools?category=image" className="text-sm font-medium hover:text-brand-600 text-slate-600 dark:text-slate-300 transition-colors whitespace-nowrap">
               {t('nav.imageTools')}
             </Link>
-            <Link to="/pricing" className="text-sm font-medium hover:text-brand-600 text-slate-600 dark:text-slate-300 transition-colors flex items-center gap-1">
+            <Link to="/pricing" className="text-sm font-medium hover:text-brand-600 text-slate-600 dark:text-slate-300 transition-colors flex items-center gap-1 whitespace-nowrap">
               <span>{t('nav.pricing')}</span>
-              <span className="bg-brand-500/10 text-brand-600 dark:text-brand-400 text-[10px] font-bold px-1.5 py-0.5 rounded">
+              <span className="bg-brand-500/10 text-brand-600 dark:text-brand-400 text-[10px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap">
                 ₹100/mo
               </span>
             </Link>
           </nav>
 
           {/* Search, Theme, Language, Actions */}
-          <div className="hidden md:flex items-center space-x-4">
+          <div className="hidden md:flex items-center space-x-2 lg:space-x-4 shrink-0">
             {/* Search Input */}
-            <div ref={searchRef} className="relative w-56 lg:w-64">
+            <div ref={searchRef} className="relative w-36 lg:w-60 shrink">
               <div className="relative">
                 <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                 <input
                   type="text"
-                  placeholder={t('home.searchPlaceholder').slice(0, 20) + '...'}
+                  placeholder={t('home.searchPlaceholder').slice(0, 16) + '...'}
                   value={searchQuery}
                   onChange={(e) => {
                     setSearchQuery(e.target.value);
                     setShowSearchResults(true);
                   }}
                   onFocus={() => setShowSearchResults(true)}
-                  className="w-full pl-9 pr-4 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 dark:focus:ring-brand-500"
+                  className="w-full pl-9 pr-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-xs lg:text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 dark:focus:ring-brand-500"
                 />
               </div>
 
@@ -160,7 +160,7 @@ export const Header: React.FC = () => {
             {/* Language Switcher */}
             <button
               onClick={() => setLanguage(language === 'en' ? 'hi' : 'en')}
-              className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850 text-slate-500 dark:text-slate-400 transition-colors flex items-center gap-1 text-xs font-semibold"
+              className="p-1.5 lg:p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850 text-slate-500 dark:text-slate-400 transition-colors flex items-center gap-1 text-xs font-semibold whitespace-nowrap shrink-0"
               title="Switch Language / भाषा बदलें"
             >
               <Globe className="h-4 w-4" />
@@ -170,7 +170,7 @@ export const Header: React.FC = () => {
             {/* Dark Mode Toggle */}
             <button
               onClick={toggleTheme}
-              className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850 text-slate-500 dark:text-slate-400 transition-colors"
+              className="p-1.5 lg:p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850 text-slate-500 dark:text-slate-400 transition-colors shrink-0"
               title="Theme Toggle"
             >
               {theme === 'dark' ? <Sun className="h-4.5 w-4.5" /> : <Moon className="h-4.5 w-4.5" />}
@@ -178,12 +178,12 @@ export const Header: React.FC = () => {
 
             {/* User Auth Section */}
             {isLoggedIn && currentUser ? (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0">
                 {/* Upgrade Button if Free user */}
                 {userPlan !== 'pro' && (
                   <button
                     onClick={openPaymentModal}
-                    className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-brand-600 hover:from-amber-600 hover:to-brand-700 text-white text-xs font-bold shadow-md shadow-brand-500/10 hover:scale-[1.02] transition-all cursor-pointer"
+                    className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-brand-600 hover:from-amber-600 hover:to-brand-700 text-white text-xs font-bold shadow-md shadow-brand-500/10 hover:scale-[1.02] transition-all cursor-pointer whitespace-nowrap shrink-0"
                   >
                     <Sparkles size={13} />
                     <span>Upgrade ₹100</span>
@@ -192,40 +192,40 @@ export const Header: React.FC = () => {
 
                 <Link
                   to={currentUser.role === 'admin' ? '/admin' : '/dashboard'}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-850 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors border border-slate-200 dark:border-slate-800"
+                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-850 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors border border-slate-200 dark:border-slate-800 shrink-0"
                 >
-                  <div className="w-6 h-6 rounded-full bg-brand-600 text-white flex items-center justify-center text-xs font-bold uppercase">
+                  <div className="w-6 h-6 rounded-full bg-brand-600 text-white flex items-center justify-center text-xs font-bold uppercase shrink-0">
                     {currentUser.name.charAt(0)}
                   </div>
-                  <div className="text-left leading-tight">
-                    <span className="text-xs font-bold text-slate-800 dark:text-slate-100 block max-w-[90px] truncate">
+                  <div className="text-left leading-tight shrink-0">
+                    <span className="text-xs font-bold text-slate-800 dark:text-slate-100 block max-w-[80px] lg:max-w-[100px] truncate whitespace-nowrap">
                       {currentUser.name}
                     </span>
-                    <span className="text-[9px] font-semibold text-brand-600 dark:text-brand-400 uppercase tracking-wider block">
-                      {userPlan === 'pro' ? 'Pro Unlimited' : 'Free (10/day)'}
+                    <span className="text-[9px] font-semibold text-brand-600 dark:text-brand-400 uppercase tracking-wider block whitespace-nowrap">
+                      {userPlan === 'pro' ? 'Pro' : 'Free (10/d)'}
                     </span>
                   </div>
                 </Link>
 
                 <button
                   onClick={handleLogout}
-                  className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
+                  className="p-1.5 lg:p-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors shrink-0"
                   title="Log Out"
                 >
                   <LogOut size={16} />
                 </button>
               </div>
             ) : (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0">
                 <button
                   onClick={() => openAuthModal('login')}
-                  className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-850 transition-colors cursor-pointer"
+                  className="px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-850 transition-colors cursor-pointer whitespace-nowrap"
                 >
                   Log In
                 </button>
                 <button
                   onClick={() => openAuthModal('signup')}
-                  className="px-3.5 py-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-xs font-bold text-white shadow-md shadow-brand-600/10 hover:scale-[1.02] transition-all cursor-pointer"
+                  className="px-3 py-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-xs font-bold text-white shadow-md shadow-brand-600/10 hover:scale-[1.02] transition-all cursor-pointer whitespace-nowrap"
                 >
                   Sign Up Free
                 </button>
