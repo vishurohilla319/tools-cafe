@@ -74,45 +74,48 @@ export const Header: React.FC = () => {
   return (
     <header className="sticky top-0 z-50 transition-colors duration-300 w-full border-b border-light-border dark:border-dark-border bg-white/80 dark:bg-dark-bg/85 backdrop-blur-md">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
-          {/* Logo */}
-          <div className="flex items-center shrink-0">
-            <Link to="/" className="flex items-center gap-2 group whitespace-nowrap shrink-0">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-indigo-400 flex items-center justify-center shadow-lg shadow-brand-500/20 group-hover:scale-105 transition-transform duration-300 shrink-0">
-                <Icon name="Printer" size={20} className="text-white" />
-              </div>
-              <span className="font-heading text-xl font-bold tracking-tight bg-gradient-to-r from-brand-600 via-indigo-500 to-violet-500 bg-clip-text text-transparent whitespace-nowrap">
-                Tools Cafe
-              </span>
-            </Link>
-          </div>
+        <div className="flex items-center justify-between h-16 gap-4">
+          {/* Logo & Desktop Nav Group */}
+          <div className="flex items-center gap-6 lg:gap-10 shrink-0">
+            {/* Logo */}
+            <div className="flex items-center shrink-0">
+              <Link to="/" className="flex items-center gap-2.5 group whitespace-nowrap shrink-0">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-indigo-400 flex items-center justify-center shadow-lg shadow-brand-500/20 group-hover:scale-105 transition-transform duration-300 shrink-0">
+                  <Icon name="Printer" size={20} className="text-white" />
+                </div>
+                <span className="font-heading text-xl font-bold tracking-tight bg-gradient-to-r from-brand-600 via-indigo-500 to-violet-500 bg-clip-text text-transparent whitespace-nowrap">
+                  Tools Cafe
+                </span>
+              </Link>
+            </div>
 
-          {/* Desktop Nav */}
-          <nav className="hidden md:flex space-x-3 lg:space-x-6 items-center shrink-0">
-            <Link to="/" className="text-sm font-medium hover:text-brand-600 text-slate-600 dark:text-slate-300 transition-colors whitespace-nowrap">
-              {t('nav.home')}
-            </Link>
-            <Link to="/tools" className="text-sm font-medium hover:text-brand-600 text-slate-600 dark:text-slate-300 transition-colors whitespace-nowrap">
-              {t('nav.allTools')}
-            </Link>
-            <Link to="/tools?category=pdf" className="text-sm font-medium hover:text-brand-600 text-slate-600 dark:text-slate-300 transition-colors whitespace-nowrap">
-              {t('nav.pdfTools')}
-            </Link>
-            <Link to="/tools?category=image" className="text-sm font-medium hover:text-brand-600 text-slate-600 dark:text-slate-300 transition-colors whitespace-nowrap">
-              {t('nav.imageTools')}
-            </Link>
-            <Link to="/pricing" className="text-sm font-medium hover:text-brand-600 text-slate-600 dark:text-slate-300 transition-colors flex items-center gap-1 whitespace-nowrap">
-              <span>{t('nav.pricing')}</span>
-              <span className="bg-brand-500/10 text-brand-600 dark:text-brand-400 text-[10px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap">
-                ₹100/mo
-              </span>
-            </Link>
-          </nav>
+            {/* Desktop Nav */}
+            <nav className="hidden md:flex space-x-4 lg:space-x-7 items-center shrink-0">
+              <Link to="/" className="text-sm font-medium hover:text-brand-600 text-slate-600 dark:text-slate-300 transition-colors whitespace-nowrap">
+                {t('nav.home')}
+              </Link>
+              <Link to="/tools" className="text-sm font-medium hover:text-brand-600 text-slate-600 dark:text-slate-300 transition-colors whitespace-nowrap">
+                {t('nav.allTools')}
+              </Link>
+              <Link to="/tools?category=pdf" className="text-sm font-medium hover:text-brand-600 text-slate-600 dark:text-slate-300 transition-colors whitespace-nowrap">
+                {t('nav.pdfTools')}
+              </Link>
+              <Link to="/tools?category=image" className="text-sm font-medium hover:text-brand-600 text-slate-600 dark:text-slate-300 transition-colors whitespace-nowrap">
+                {t('nav.imageTools')}
+              </Link>
+              <Link to="/pricing" className="text-sm font-medium hover:text-brand-600 text-slate-600 dark:text-slate-300 transition-colors flex items-center gap-1 whitespace-nowrap">
+                <span>{t('nav.pricing')}</span>
+                <span className="bg-brand-500/10 text-brand-600 dark:text-brand-400 text-[10px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap">
+                  ₹100/mo
+                </span>
+              </Link>
+            </nav>
+          </div>
 
           {/* Search, Theme, Language, Actions */}
           <div className="hidden md:flex items-center space-x-2 lg:space-x-4 shrink-0">
             {/* Search Input */}
-            <div ref={searchRef} className="relative w-36 lg:w-60 shrink">
+            <div ref={searchRef} className="relative w-32 md:w-40 lg:w-56 shrink">
               <div className="relative">
                 <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                 <input
