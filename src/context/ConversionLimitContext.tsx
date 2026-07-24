@@ -19,7 +19,7 @@ let programmaticClickInProgress = false;
 
 export const ConversionLimitProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [showLimitModal, setShowLimitModal] = useState(false);
-  const [modalType, setModalType] = useState<'auth_required' | 'limit_reached'>('limit_reached');
+  const [modalType] = useState<'auth_required' | 'limit_reached'>('limit_reached');
   
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
@@ -80,8 +80,6 @@ export const ConversionLimitProvider: React.FC<{ children: React.ReactNode }> = 
   };
 
   const checkAndIncrementLimit = (): boolean => {
-    const loggedIn = localStorage.getItem('isLoggedIn') === 'true';
-    const plan = localStorage.getItem('userPlan') || 'free';
     const todayStr = getTodayStr();
 
     // Check date reset
@@ -96,28 +94,7 @@ export const ConversionLimitProvider: React.FC<{ children: React.ReactNode }> = 
       count = saved ? parseInt(saved, 10) : 0;
     }
 
-    // 1. Pro Users (Paid ₹100/mo) -> Unlimited conversions!
-    if (plan === 'pro') {
-      localStorage.setItem('files_processed_count', String(count + 1));
-      window.dispatchEvent(new Event('storage'));
-      return true;
-    }
-
-    // 2. Guest User (Not Logged In) -> Prompt to Login or Signup
-    if (!loggedIn) {
-      setModalType('auth_required');
-      setShowLimitModal(true);
-      return false;
-    }
-
-    // 3. Free Logged-In User -> 10 conversions per day limit
-    if (count >= 10) {
-      setModalType('limit_reached');
-      setShowLimitModal(true);
-      return false;
-    }
-
-    // Increment count & allow conversion
+    // Always allow conversions without mandatory login or daily limit
     localStorage.setItem('files_processed_count', String(count + 1));
     window.dispatchEvent(new Event('storage'));
     return true;
