@@ -1,12 +1,16 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { Lock, User, Settings } from 'lucide-react';
-import { useLanguage } from './LanguageContext';
+import { Lock, Sparkles, LogIn, UserPlus, CreditCard } from 'lucide-react';
+import AuthModal from '../components/auth/AuthModal';
+import PaymentModal from '../components/payment/PaymentModal';
 
 interface ConversionLimitContextType {
   conversionCount: number;
   isLoggedIn: boolean;
+  userPlan: string;
   showLimitModal: boolean;
   setShowLimitModal: (show: boolean) => void;
+  openAuthModal: (mode?: 'login' | 'signup') => void;
+  openPaymentModal: () => void;
 }
 
 const ConversionLimitContext = createContext<ConversionLimitContextType | undefined>(undefined);
@@ -14,23 +18,50 @@ const ConversionLimitContext = createContext<ConversionLimitContextType | undefi
 let programmaticClickInProgress = false;
 
 export const ConversionLimitProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { t } = useLanguage();
   const [showLimitModal, setShowLimitModal] = useState(false);
+  const [modalType, setModalType] = useState<'auth_required' | 'limit_reached'>('limit_reached');
+  
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
+  
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+
+  const getTodayStr = () => new Date().toISOString().split('T')[0];
+
   const [conversionCount, setConversionCount] = useState(() => {
+    const todayStr = getTodayStr();
+    const lastDate = localStorage.getItem('tools_cafe_last_conversion_date');
+    if (lastDate !== todayStr) {
+      localStorage.setItem('tools_cafe_last_conversion_date', todayStr);
+      localStorage.setItem('files_processed_count', '0');
+      return 0;
+    }
     const saved = localStorage.getItem('files_processed_count');
     return saved ? parseInt(saved, 10) : 0;
   });
+
   const [isLoggedIn, setIsLoggedIn] = useState(() => localStorage.getItem('isLoggedIn') === 'true');
+  const [userPlan, setUserPlan] = useState(() => localStorage.getItem('userPlan') || 'free');
 
   useEffect(() => {
     const handleStorageChange = () => {
-      const saved = localStorage.getItem('files_processed_count');
-      setConversionCount(saved ? parseInt(saved, 10) : 0);
+      const todayStr = getTodayStr();
+      const lastDate = localStorage.getItem('tools_cafe_last_conversion_date');
+      
+      if (lastDate !== todayStr) {
+        localStorage.setItem('tools_cafe_last_conversion_date', todayStr);
+        localStorage.setItem('files_processed_count', '0');
+        setConversionCount(0);
+      } else {
+        const saved = localStorage.getItem('files_processed_count');
+        setConversionCount(saved ? parseInt(saved, 10) : 0);
+      }
+
       setIsLoggedIn(localStorage.getItem('isLoggedIn') === 'true');
+      setUserPlan(localStorage.getItem('userPlan') || 'free');
     };
 
     window.addEventListener('storage', handleStorageChange);
-    // Poll to keep in sync instantly across state updates in the same tab
     const interval = setInterval(handleStorageChange, 500);
 
     return () => {
@@ -39,23 +70,54 @@ export const ConversionLimitProvider: React.FC<{ children: React.ReactNode }> = 
     };
   }, []);
 
+  const openAuthModal = (mode: 'login' | 'signup' = 'login') => {
+    setAuthMode(mode);
+    setAuthModalOpen(true);
+  };
+
+  const openPaymentModal = () => {
+    setPaymentModalOpen(true);
+  };
+
   const checkAndIncrementLimit = (): boolean => {
     const loggedIn = localStorage.getItem('isLoggedIn') === 'true';
-    const saved = localStorage.getItem('files_processed_count');
-    const count = saved ? parseInt(saved, 10) : 0;
+    const plan = localStorage.getItem('userPlan') || 'free';
+    const todayStr = getTodayStr();
 
-    if (loggedIn) {
-      // If logged in, increment the files processed count for dashboard usage, but never block
+    // Check date reset
+    const lastDate = localStorage.getItem('tools_cafe_last_conversion_date');
+    let count = 0;
+    if (lastDate !== todayStr) {
+      localStorage.setItem('tools_cafe_last_conversion_date', todayStr);
+      localStorage.setItem('files_processed_count', '0');
+      count = 0;
+    } else {
+      const saved = localStorage.getItem('files_processed_count');
+      count = saved ? parseInt(saved, 10) : 0;
+    }
+
+    // 1. Pro Users (Paid ₹100/mo) -> Unlimited conversions!
+    if (plan === 'pro') {
       localStorage.setItem('files_processed_count', String(count + 1));
       window.dispatchEvent(new Event('storage'));
       return true;
     }
 
-    if (count >= 10) {
-      return false; // Limit exceeded and user not logged in
+    // 2. Guest User (Not Logged In) -> Prompt to Login or Signup
+    if (!loggedIn) {
+      setModalType('auth_required');
+      setShowLimitModal(true);
+      return false;
     }
 
-    // Increment and allow
+    // 3. Free Logged-In User -> 10 conversions per day limit
+    if (count >= 10) {
+      setModalType('limit_reached');
+      setShowLimitModal(true);
+      return false;
+    }
+
+    // Increment count & allow conversion
     localStorage.setItem('files_processed_count', String(count + 1));
     window.dispatchEvent(new Event('storage'));
     return true;
@@ -65,7 +127,7 @@ export const ConversionLimitProvider: React.FC<{ children: React.ReactNode }> = 
     // 1. Intercept JSX links and element clicks
     const handleWindowClick = (e: MouseEvent) => {
       if (programmaticClickInProgress) {
-        return; // Avoid double checking
+        return;
       }
 
       let target = e.target as HTMLElement | null;
@@ -74,7 +136,6 @@ export const ConversionLimitProvider: React.FC<{ children: React.ReactNode }> = 
           if (!checkAndIncrementLimit()) {
             e.preventDefault();
             e.stopPropagation();
-            setShowLimitModal(true);
           }
           return;
         }
@@ -91,7 +152,6 @@ export const ConversionLimitProvider: React.FC<{ children: React.ReactNode }> = 
         programmaticClickInProgress = true;
         try {
           if (!checkAndIncrementLimit()) {
-            setShowLimitModal(true);
             return;
           }
         } finally {
@@ -113,7 +173,6 @@ export const ConversionLimitProvider: React.FC<{ children: React.ReactNode }> = 
       const urlStr = url ? url.toString() : '';
       if (urlStr.startsWith('blob:') || urlStr.startsWith('data:')) {
         if (!checkAndIncrementLimit()) {
-          setShowLimitModal(true);
           return null;
         }
       }
@@ -127,70 +186,119 @@ export const ConversionLimitProvider: React.FC<{ children: React.ReactNode }> = 
     };
   }, []);
 
-  const handleLogin = (role: 'user' | 'admin') => {
-    localStorage.setItem('isLoggedIn', 'true');
-    localStorage.setItem('userRole', role);
-    setIsLoggedIn(true);
-    setShowLimitModal(false);
-    window.dispatchEvent(new Event('storage'));
-  };
-
   return (
     <ConversionLimitContext.Provider
       value={{
         conversionCount,
         isLoggedIn,
+        userPlan,
         showLimitModal,
         setShowLimitModal,
+        openAuthModal,
+        openPaymentModal,
       }}
     >
       {children}
 
-      {/* Premium Glassmorphic Modal */}
+      {/* Global Auth Modal */}
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        initialMode={authMode}
+      />
+
+      {/* Global Payment Modal (₹100/mo) */}
+      <PaymentModal
+        isOpen={paymentModalOpen}
+        onClose={() => setPaymentModalOpen(false)}
+      />
+
+      {/* Glassmorphic Limit / Auth Alert Modal */}
       {showLimitModal && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/70 dark:bg-slate-950/85 backdrop-blur-md">
-          <div className="bg-white dark:bg-dark-card border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl p-6 sm:p-8 max-w-md w-full transform transition-all scale-100 relative overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white dark:bg-dark-card border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl p-6 sm:p-8 max-w-md w-full transform transition-all scale-100 relative overflow-hidden animate-in fade-in zoom-in-95 duration-200 text-center">
+            
             {/* Top color bar */}
             <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-brand-600 via-indigo-500 to-violet-500" />
 
-            {/* Lock icon */}
-            <div className="mx-auto w-14 h-14 rounded-2xl bg-gradient-to-tr from-brand-600 to-indigo-400 flex items-center justify-center shadow-lg shadow-brand-500/20 text-white mb-6">
-              <Lock className="w-6 h-6" />
-            </div>
+            {modalType === 'auth_required' ? (
+              <>
+                <div className="mx-auto w-14 h-14 rounded-2xl bg-gradient-to-tr from-brand-600 to-indigo-500 flex items-center justify-center shadow-lg shadow-brand-500/20 text-white mb-5">
+                  <Lock className="w-6 h-6" />
+                </div>
 
-            {/* Content */}
-            <h3 className="text-xl font-extrabold text-slate-800 dark:text-slate-100 text-center mb-2 font-heading">
-              {t('limit.modal.title')}
-            </h3>
-            <p className="text-slate-500 dark:text-slate-400 text-xs text-center leading-relaxed mb-8">
-              {t('limit.modal.description')}
-            </p>
+                <h3 className="text-xl font-extrabold text-slate-800 dark:text-slate-100 mb-2 font-heading">
+                  Login Required to Process Files
+                </h3>
+                <p className="text-slate-500 dark:text-slate-400 text-xs leading-relaxed mb-6">
+                  Please Log In or Sign Up for free to get <strong>10 free conversions every day</strong>!
+                </p>
 
-            {/* Action Buttons */}
-            <div className="space-y-3">
-              <button
-                onClick={() => handleLogin('user')}
-                className="w-full py-3 px-4 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold shadow-lg shadow-brand-600/20 transition-all hover:scale-[1.01] flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <User className="w-4 h-4" />
-                <span>{t('limit.modal.loginUser')}</span>
-              </button>
+                <div className="space-y-3">
+                  <button
+                    onClick={() => {
+                      setShowLimitModal(false);
+                      openAuthModal('login');
+                    }}
+                    className="w-full py-3 px-4 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold shadow-lg shadow-brand-600/20 transition-all hover:scale-[1.01] flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <LogIn className="w-4 h-4" />
+                    <span>Log In to Your Account</span>
+                  </button>
 
-              <button
-                onClick={() => handleLogin('admin')}
-                className="w-full py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-lg shadow-indigo-500/20 transition-all hover:scale-[1.01] flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Settings className="w-4 h-4" />
-                <span>{t('limit.modal.loginAdmin')}</span>
-              </button>
+                  <button
+                    onClick={() => {
+                      setShowLimitModal(false);
+                      openAuthModal('signup');
+                    }}
+                    className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white text-xs font-bold shadow-lg shadow-indigo-600/20 transition-all hover:scale-[1.01] flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <UserPlus className="w-4 h-4" />
+                    <span>Create Free Account (10 Daily)</span>
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="mx-auto w-14 h-14 rounded-2xl bg-gradient-to-tr from-amber-500 to-brand-600 flex items-center justify-center shadow-lg shadow-amber-500/20 text-white mb-5">
+                  <Sparkles className="w-6 h-6" />
+                </div>
 
-              <button
-                onClick={() => setShowLimitModal(false)}
-                className="w-full py-2.5 px-4 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-350 text-xs font-semibold hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors cursor-pointer text-center"
-              >
-                {t('limit.modal.cancel')}
-              </button>
-            </div>
+                <h3 className="text-xl font-extrabold text-slate-800 dark:text-slate-100 mb-2 font-heading">
+                  Daily Limit Reached (10/10)
+                </h3>
+                <p className="text-slate-500 dark:text-slate-400 text-xs leading-relaxed mb-6">
+                  You have used all <strong>10 daily free conversions</strong> for today. Upgrade to Pro for <strong>₹100/month</strong> for Unlimited conversions!
+                </p>
+
+                <div className="space-y-3">
+                  <button
+                    onClick={() => {
+                      setShowLimitModal(false);
+                      openPaymentModal();
+                    }}
+                    className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-brand-600 hover:from-emerald-700 hover:to-brand-700 text-white text-xs font-bold shadow-lg shadow-emerald-500/20 transition-all hover:scale-[1.01] flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <CreditCard className="w-4 h-4" />
+                    <span>Pay ₹100 / Month for Unlimited</span>
+                  </button>
+
+                  <button
+                    onClick={() => setShowLimitModal(false)}
+                    className="w-full py-2.5 px-4 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-350 text-xs font-semibold hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors cursor-pointer"
+                  >
+                    Wait Until Tomorrow
+                  </button>
+                </div>
+              </>
+            )}
+
+            <button
+              onClick={() => setShowLimitModal(false)}
+              className="mt-4 text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 underline"
+            >
+              Cancel
+            </button>
           </div>
         </div>
       )}
@@ -205,3 +313,5 @@ export const useConversionLimit = () => {
   }
   return context;
 };
+
+export default ConversionLimitContext;
