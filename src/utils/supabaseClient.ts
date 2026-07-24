@@ -8,7 +8,8 @@ export interface SupabaseAuthResponse {
 
 export const signUpWithEmail = async (email: string, password: string, name: string): Promise<SupabaseAuthResponse> => {
   try {
-    const res = await fetch(`${SUPABASE_URL}/auth/v1/signup`, {
+    const redirectTo = window.location.origin;
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/signup?redirect_to=${encodeURIComponent(redirectTo)}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -18,6 +19,7 @@ export const signUpWithEmail = async (email: string, password: string, name: str
         email,
         password,
         data: { full_name: name },
+        options: { redirectTo },
       }),
     });
     
@@ -62,7 +64,8 @@ export const signInWithEmail = async (email: string, password: string): Promise<
 
 export const sendPasswordResetEmail = async (email: string): Promise<SupabaseAuthResponse> => {
   try {
-    const res = await fetch(`${SUPABASE_URL}/auth/v1/recover`, {
+    const redirectTo = window.location.origin;
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/recover?redirect_to=${encodeURIComponent(redirectTo)}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -70,6 +73,7 @@ export const sendPasswordResetEmail = async (email: string): Promise<SupabaseAut
       },
       body: JSON.stringify({
         email,
+        options: { redirectTo },
       }),
     });
     
