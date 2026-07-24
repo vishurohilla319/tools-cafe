@@ -59,3 +59,52 @@ export const signInWithEmail = async (email: string, password: string): Promise<
     return { data: null, error: err.message || 'Login failed' };
   }
 };
+
+export const sendPasswordResetEmail = async (email: string): Promise<SupabaseAuthResponse> => {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/recover`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify({
+        email,
+      }),
+    });
+    
+    const data = await res.json();
+    if (!res.ok) {
+      const errorMsg = data.msg || data.error_description || data.message || 'Failed to send password reset email';
+      return { data: null, error: errorMsg };
+    }
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: err.message || 'Failed to send password reset email' };
+  }
+};
+
+export const resetUserPassword = async (accessToken: string, newPassword: string): Promise<SupabaseAuthResponse> => {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        password: newPassword,
+      }),
+    });
+    
+    const data = await res.json();
+    if (!res.ok) {
+      const errorMsg = data.msg || data.error_description || data.message || 'Failed to update password';
+      return { data: null, error: errorMsg };
+    }
+    return { data, error: null };
+  } catch (err: any) {
+    return { data: null, error: err.message || 'Failed to update password' };
+  }
+};
